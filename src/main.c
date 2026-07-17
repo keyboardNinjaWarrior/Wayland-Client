@@ -1,10 +1,10 @@
 /* 					*
- * Name: 	Nadeem Anwar           	*
- * Email: 	ibnul.aftab@proton.me 	*
+ * Name: 	Lain			*
  * 					*/
 
 // TODO: plan error handling
 // TODO: replace exit with proper function that deallocates memory
+// TODO: documentation
 // XXX:  DON'T TRY TO MAKE ERROR HANDLING IF STATEMENTS INTO A MACRO. EXTREMELY BAD IDEA. PLEASE BEAR WITH IT.
 // 	 Strips the abblity to write custom messages.	
 
@@ -17,6 +17,7 @@
 #include <wayland-client.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <threads.h>
 
 #include "xdg-shell-client-protocol.h"
 #include "errors.h"
@@ -60,6 +61,7 @@ static struct metadata {
 		.buffer = NULL
 };
 
+// TODO: merge state and metadata togather
 static struct state {
 	struct wl_display * display;
 	struct wl_event_queue * display_queue;
@@ -87,6 +89,8 @@ static struct state {
 	.running = false,
 };
 
+static mtx_t mutex;
+
 static void set_globals (void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version);
 static void handle_removed_globals (void * data, struct wl_registry * registery, uint32_t name);
 static void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial);
@@ -97,6 +101,9 @@ static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_topl
 static void set_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities);
 static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data);
 static void release_buffer (void *data, struct wl_buffer *wl_buffer);
+
+int dispatch_display_queue(void * args);
+int dispatch_render_queue(void * args);
 
 static const struct xdg_wm_base_listener window_manager_base_listener = {
 	.ping = &ping
@@ -201,11 +208,22 @@ int main (void)
 	
 	END_BENCHMARK(1, "before " BOLD "wl_display_dispatch_queue()" RESET);
 	
+	state.render_queue = wl_display_create_queue(state.display);
+
 	state.running = true;
-	while(state.running && wl_display_dispatch_queue(state.display, state.display_queue) != -1);
 	
-	for(int i = 0; i < metadata.len; i++)
-		wl_buffer_destroy(frame[i].buffer);
+	thrd_t display_queue_thrd_id;
+	thrd_create(&display_queue_thrd_id, dispatch_display_queue, NULL);
+	int display_queue_thrd_ret_val;
+
+	thrd_t render_queue_thrd_id;
+	thrd_create(&render_queue_thrd_id, dispatch_render_queue, NULL);
+	int render_queue_thrd_ret_val; 
+
+	thrd_join(render_queue_thrd_id, &render_queue_thrd_ret_val);
+	thrd_join(display_queue_thrd_id, &display_queue_thrd_ret_val);
+
+	for(int i = 0; i < metadata.len; i++)	wl_buffer_destroy(frame[i].buffer);
 
 	wl_callback_destroy(metadata.callback);
 	xdg_toplevel_destroy(state.xdg_toplevel);
@@ -289,7 +307,7 @@ static void set_globals(void * data, struct wl_registry * registery, uint32_t na
 
 static void handle_removed_globals(void * data, struct wl_registry * registery, uint32_t name) {}
 
-void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
+static void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 {
 	PRINT_LOG(LOG, "Application is active!");	
 	
@@ -322,7 +340,7 @@ inline static int allocate_shm_file()
 }
 
 // TODO: configure_toplevel: width == 0 and heingth == 0 not necisserily when the window is created 
-void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t serial)
+static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t serial)
 {
 	START_BENCHMARK(1);
 	
@@ -397,15 +415,16 @@ void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t ser
 	xdg_surface_configure_end:
 
 	metadata.callback = wl_surface_frame(state.wl_surface);
+	wl_proxy_set_queue((struct wl_proxy *) metadata.callback, state.render_queue);
+	
 	wl_callback_add_listener(metadata.callback, &wl_callback_listener, data);
-		
 	wl_surface_attach(state.wl_surface, frame[0].buffer, 0, 0);
 	wl_surface_commit(state.wl_surface);
 	
 	END_BENCHMARK(1, "%s()", __func__)
 }
 
-void configure_toplevel (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
+static void configure_toplevel (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
 {
 
 	PRINT_LOG(LOG, "Width: %d; Height: %d", width, height);
@@ -426,7 +445,7 @@ void configure_toplevel (void *data, struct xdg_toplevel *xdg_toplevel, int32_t 
 	}	
 }
 
-void done_callback(void *data, struct wl_callback *wl_callback, uint32_t callback_data)
+static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data)
 {
 	#ifdef DEBUG 
 	static uint32_t time = 0;
@@ -439,6 +458,7 @@ void done_callback(void *data, struct wl_callback *wl_callback, uint32_t callbac
 
 	wl_callback_destroy(metadata.callback);
 	metadata.callback = wl_surface_frame(state.wl_surface);
+	wl_proxy_set_queue((struct wl_proxy *) metadata.callback, state.render_queue);
 	wl_callback_add_listener(metadata.callback, &wl_callback_listener, data);
 	
 	struct frame * free_frame;
@@ -466,20 +486,43 @@ void done_callback(void *data, struct wl_callback *wl_callback, uint32_t callbac
 	wl_surface_commit(state.wl_surface);
 }
 
-void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel)
+static void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel)
 {
 	PRINT_LOG(LOG, "Quitting...");
 
 	state.running = false;
 }
 
-void configure_toplevel_bounds(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
-void set_wm_capabilities(void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities) {}
+static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
+static void set_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities) {}
 
-void release_buffer(void *data, struct wl_buffer *wl_buffer)
+static void release_buffer(void *data, struct wl_buffer *wl_buffer)
 {	
 	struct frame * frame_to_be_free = (struct frame *) data;
 	frame_to_be_free->free = true;
 	
 	PRINT_LOG(LOG, BOLD "frame[%d]" RESET " freed", frame_to_be_free->id);
+}
+
+int dispatch_display_queue(void * args)
+{
+	PRINT_LOG(LOG, "Launched " BOLD VAR(dispatch_display_queue()) RESET);
+	(void) args;
+
+	int queue_ret_val = 0;
+	while(state.running && queue_ret_val != -1)	
+		queue_ret_val = wl_display_dispatch_queue(state.display, state.display_queue);
+	
+	return queue_ret_val;
+}
+
+int dispatch_render_queue(void * args)
+{
+	PRINT_LOG(LOG, "Launched " BOLD VAR(dispatch_render_queue()) RESET);
+	(void) args;
+		
+	int queue_ret_val = 0;
+	while(state.running && queue_ret_val != -1)	
+		queue_ret_val = wl_display_dispatch_queue(state.display, state.render_queue);
+	return queue_ret_val;
 }
