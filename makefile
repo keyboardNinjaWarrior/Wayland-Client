@@ -1,73 +1,51 @@
 XDG_SHELL := /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml 
-DYNAMIC_LIB := -lwayland-client -lc
+DYNAMIC_LIB := -lwayland-client
 INCLUDE := -I./include/
+OBJECT ?= ./object
+DEBUG_FLAGS := -pg -g3 -DDEBUG
 
-.PHONY: run, remove, run-debug, build, build-debug, debugger, profiler
+.PHONY: clean build directories
 
-# Simple Build
-build: ./bin/main
+# TODO: Find a way to overide OBJECT variable and set it to argument passed to makefile
 
-./bin/main: ./object/main.o ./object/render.o ./object/xdg-shell-protocol.o bin
-	@echo "[cc] Linking files into executable: main..."
-	@cc -o ./bin/main ./object/main.o ./object/render.o ./object/xdg-shell-protocol.o $(DYNAMIC_LIB)
+# Project Build
+build: unlinked-qurtuba.o render.o xdg-shell-protocol.o xdg-shell-protocol.o
+	@echo "[ld] Combining object files togather: unlinked-qurtuba.o render.o xdg-shell-protocol.o xdg-shell-protocol.o..." 
+	@ld -r $(OBJECT)/unlinked-qurtuba.o $(OBJECT)/render.o $(OBJECT)/xdg-shell-protocol.o -o $(OBJECT)/qurtuba.o
 
-./object/main.o: ./src/main.c ./include/render.h ./include/errors.h ./include/xdg-shell-client-protocol.h object
-	@echo "[cc] Compiling object file: main.o..."
-	@cc $(INCLUDE) -o ./object/main.o -c ./src/main.c
+unlinked-qurtuba.o: ./src/qurtuba.c ./include/render.h ./include/errors.h ./xdg-shell-protocol/xdg-shell-client-protocol.h directories 
+	@echo "[cc] Compiling object file: $@"
+	@cc $(DEBUG_FLAGS) $(INCLUDE) -I./xdg-shell-protocol -o $(OBJECT)/unlinked-qurtuba.o -c ./src/qurtuba.c $(DYNAMIC_LIB)
 
-./object/render.o: ./src/render.c ./include/render.h object
-	@echo "[cc] Compiling object file: render.o..."
-	@cc $(INCLUDE) -o ./object/render.o -c ./src/render.c
+# TODO: Remove render.c
+render.o: ./src/render.c ./include/render.h directories 
+	@echo "[cc] Compiling object file: $@"
+	@cc $(DEBUG_FLAGS) $(INCLUDE) -o $(OBJECT)/render.o -c ./src/render.c
 
-# Build with debugging
-build-debug: ./bin/main-debug
+# Protocols generated locally 
+xdg-shell-protocol.o: ./xdg-shell-protocol/xdg-shell-protocol.c directories 
+	@echo "[cc] Compiling object file: $@..."
+	@cc -o $(OBJECT)/xdg-shell-protocol.o -c ./xdg-shell-protocol/xdg-shell-protocol.c
 
-./bin/main-debug: ./object/render-debug.o ./object/xdg-shell-protocol.o ./object/main-debug.o bin
-	@echo "[cc] Linking files into executable main with debug header..."
-	@cc -pg -g3 -o ./bin/main-debug ./object/render-debug.o ./object/xdg-shell-protocol.o ./object/main-debug.o $(DYNAMIC_LIB)
+xdg-shell-protocol.c: $(XDG_SHELL) directories
+	@echo "[wayland-scanner] Generating $@..."
+	@wayland-scanner private-code $(XDG_SHELL) ./xdg-shell-protocol/xdg-shell-protocol.c
 
-./object/main-debug.o: ./src/main.c ./include/render.h ./include/debug.h ./include/errors.h ./include/xdg-shell-client-protocol.h object
-	@echo "[cc] Compiling object file: main.o with debug header..."
-	@cc $(INCLUDE) -pg -g3 -DDEBUG -o ./object/main-debug.o -c ./src/main.c
-
-./object/render-debug.o: ./src/render.c ./include/errors.h object
-	@echo "[cc] Compiling object file: render.o with debug header..."
-	@cc $(INCLUDE) -pg -g3 -DDEBUG -o ./object/render-debug.o -c ./src/render.c
-
-# Protocols generated from computer
-./lib/xdg-shell-protocol.c: $(XDG_SHELL) lib
-	@echo "[wayland-scanner] Generating xdg-shell-protocol.c..."
-	@wayland-scanner private-code $(XDG_SHELL) ./lib/xdg-shell-protocol.c
-
-./include/xdg-shell-client-protocol.h: $(XDG_SHELL) include
-	@echo "[wayland-scanner] Generating xdg-shell-protocol.h..."
-	@wayland-scanner client-header $(XDG_SHELL) ./include/xdg-shell-client-protocol.h
-
-./object/xdg-shell-protocol.o: ./lib/xdg-shell-protocol.c object
-	@echo "[cc] Compiling object file: xdg-shell-protocol.o..."
-	@cc -o ./object/xdg-shell-protocol.o -c ./lib/xdg-shell-protocol.c 
+xdg-shell-client-protocol.h: $(XDG_SHELL) directories  
+	@echo "[wayland-scanner] Generating $@..."
+	@wayland-scanner client-header $(XDG_SHELL) ./xdg-shell-protocol/xdg-shell-client-protocol.h
 
 # Generating directories
-bin object lib:
-	@echo "[LOG] Generating directories..."
-	@mkdir $@ 
+directories: $(OBJECT) ./xdg-shell-protocol 
 
-# Magic/Phony Commands
-run: ./bin/main
-	@echo "Running..."
-	@./bin/main
+./xdg-shell-protocol:
+	@echo "[LOG] Generating directoty: $@..."
+	- @mkdir ./xdg-shell-protocol 
 
-run-debug: ./bin/main-debug
-	@echo "Running..."
-	@./bin/main-debug
+$(OBJECT):
+	@echo "[LOG] Generating directory: $@..."
+	- @mkdir $(OBJECT)
 
-debugger:
-	@echo "Running debugger..."
-	gdb ./bin/main-debug
-
-remove:
-	- @rm ./object/*.o
-	- @rm ./bin/*
-
-profiler: ./bin/main-debug
-	gprof -b ./bin/main-debug
+# Cleaning object files
+clean:
+	- @rm $(OBJECT)/*.o
