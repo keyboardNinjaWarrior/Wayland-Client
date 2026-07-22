@@ -87,38 +87,38 @@ static struct state {
 	.running = false,
 };
 
-static void registery_global(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version);			// set_globals
-static void registery_global_remove(void * data, struct wl_registry * registery, uint32_t name);							// handle_removed_global
+static void set_globals (void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version);
+static void handle_removed_globals (void * data, struct wl_registry * registery, uint32_t name);
 static void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial);
-static void xdg_surface_configure (void *data, struct xdg_surface *xdg_surface, uint32_t serial);
-static void xdg_toplevel_close(void *data, struct xdg_toplevel *xdg_toplevel);
-static void xdg_toplevel_configure (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states);
-static void xdg_toplevel_configure_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height);
-static void xdg_toplevel_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities);
-static void wl_callback_frame_done(void *data, struct wl_callback *wl_callback, uint32_t callback_data);
-static void wl_buffer_release (void *data, struct wl_buffer *wl_buffer);
+static void configure_surface (void *data, struct xdg_surface *xdg_surface, uint32_t serial);
+static void close_xdg_toplevel (void *data, struct xdg_toplevel *xdg_toplevel);
+static void configure_toplevel (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states);
+static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height);
+static void set_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities);
+static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data);
+static void release_buffer (void *data, struct wl_buffer *wl_buffer);
 
 static const struct xdg_wm_base_listener window_manager_base_listener = {
 	.ping = &ping
 };
 
 static const struct xdg_surface_listener xdg_surface_listener = {
-	.configure = &xdg_surface_configure 
+	.configure = &configure_surface  
 };
 
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
-	.configure = &xdg_toplevel_configure,
-	.close = &xdg_toplevel_close,
-	.configure_bounds = xdg_toplevel_configure_bounds,
-	.wm_capabilities = xdg_toplevel_wm_capabilities
+	.configure = &configure_toplevel,
+	.close = &close_xdg_toplevel,
+	.configure_bounds = configure_toplevel_bounds,
+	.wm_capabilities = set_wm_capabilities
 };
 
 static const struct wl_callback_listener wl_callback_listener = {
-	.done = &wl_callback_frame_done
+	.done = &done_callback
 };
 
 static const struct wl_buffer_listener wl_buffer_listener = {
-	.release = &wl_buffer_release
+	.release = &release_buffer
 };
 
 int main (void)
@@ -142,8 +142,8 @@ int main (void)
 	wl_proxy_set_queue((struct wl_proxy *) registry, registry_queue);
 
     	const struct wl_registry_listener registery_listener = {
-		.global = &registery_global,
-		.global_remove = &registery_global_remove
+		.global = &set_globals,
+		.global_remove = &handle_removed_globals
 	};
 
 	wl_registry_add_listener(registry, &registery_listener, NULL);
@@ -231,7 +231,7 @@ int main (void)
 	return 0;
 }
 
-static void registery_global(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version)
+static void set_globals(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version)
 {	
 	PRINT_LOG(LOG, "Found: " BOLD "%s" RESET, interface);
 	
@@ -287,7 +287,7 @@ static void registery_global(void * data, struct wl_registry * registery, uint32
 	}
 }
 
-static void registery_global_remove(void * data, struct wl_registry * registery, uint32_t name) {}
+static void handle_removed_globals(void * data, struct wl_registry * registery, uint32_t name) {}
 
 void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 {
@@ -321,8 +321,8 @@ inline static int allocate_shm_file()
 	return fd;
 }
 
-// TODO: xdg_toplevel_configure: width == 0 and heingth == 0 not necisserily when the window is created 
-void xdg_surface_configure (void *data, struct xdg_surface *xdg_surface, uint32_t serial)
+// TODO: configure_toplevel: width == 0 and heingth == 0 not necisserily when the window is created 
+void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t serial)
 {
 	START_BENCHMARK(1);
 	
@@ -330,7 +330,6 @@ void xdg_surface_configure (void *data, struct xdg_surface *xdg_surface, uint32_
 	
 	switch (state.flag)	
 	{
-		// Add support for double buffering
 		case CREATE:
 			{
 				PRINT_LOG(LOG, "Creating frame buffer...");
@@ -406,7 +405,7 @@ void xdg_surface_configure (void *data, struct xdg_surface *xdg_surface, uint32_
 	END_BENCHMARK(1, "%s()", __func__)
 }
 
-void xdg_toplevel_configure (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
+void configure_toplevel (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
 {
 
 	PRINT_LOG(LOG, "Width: %d; Height: %d", width, height);
@@ -427,7 +426,7 @@ void xdg_toplevel_configure (void *data, struct xdg_toplevel *xdg_toplevel, int3
 	}	
 }
 
-void wl_callback_frame_done(void *data, struct wl_callback *wl_callback, uint32_t callback_data)
+void done_callback(void *data, struct wl_callback *wl_callback, uint32_t callback_data)
 {
 	#ifdef DEBUG 
 	static uint32_t time = 0;
@@ -450,13 +449,13 @@ void wl_callback_frame_done(void *data, struct wl_callback *wl_callback, uint32_
 		{	
 			PRINT_LOG(LOG, "frame[%d].free = %d", frame[i].id, frame[i].free);
 			free_frame = &frame[i];
-			goto wl_callback_frame_done_free;
+			goto done_callback_free;
 		}
 	}
 	
 	return;	
 	
-	wl_callback_frame_done_free:
+	done_callback_free:
 	free_frame->free = false;
 	PRINT_LOG(LOG, BOLD "frame[%d]" RESET " chosen for rendering", free_frame->id);
 
@@ -467,17 +466,17 @@ void wl_callback_frame_done(void *data, struct wl_callback *wl_callback, uint32_
 	wl_surface_commit(state.wl_surface);
 }
 
-void xdg_toplevel_close(void *data, struct xdg_toplevel *xdg_toplevel)
+void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel)
 {
 	PRINT_LOG(LOG, "Quitting...");
 
 	state.running = false;
 }
 
-void xdg_toplevel_configure_bounds(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
-void xdg_toplevel_wm_capabilities(void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities) {}
+void configure_toplevel_bounds(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
+void set_wm_capabilities(void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities) {}
 
-void wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
+void release_buffer(void *data, struct wl_buffer *wl_buffer)
 {	
 	struct frame * frame_to_be_free = (struct frame *) data;
 	frame_to_be_free->free = true;
