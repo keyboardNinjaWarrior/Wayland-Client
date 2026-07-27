@@ -1,3 +1,5 @@
+<!--Author: Singhera -->
+
 # Qurtuba
 
 A lightweight C library that provides an abstraction layer over `wayland-client.h`, enabling developers to create Wayland windows and render pixel buffers with minimal boilerplate.
@@ -16,16 +18,12 @@ A lightweight C library that provides an abstraction layer over `wayland-client.
 - [How it's organized](#how-its-organized)
 - [How it fits together](#how-it-fits-together)
 - [Installation](#installation)
-- [Usage](#usage)
-- [API reference](#api-reference)
 - [Contributing](#contributing)
-- [Author](#author)
 
 ## Stack
 
 - **Language:** C
-- **Framework / runtime:** Wayland protocol (stable XDG shell)
-- **Notable libraries:** wayland-client, POSIX threads (`<threads.h>`), memory mapping (`mmap`)
+- **Runtime:** Wayland protocol (stable XDG shell)
 
 ## How it's organized
 
@@ -52,58 +50,25 @@ Qurtuba initializes a Wayland display connection, binds to the compositor, share
 ### Prerequisites
 
 - A C compiler (GCC or Clang)
-- `wayland-client` development libraries
-- `wayland-protocols` package (for XDG shell XML, typically at `/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml`)
-- `wayland-scanner` tool
+- `wayland-devel` development package for wayland which includes:
+    - `wayland-client` development libraries
+    - `wayland-protocols` package (for XDG shell XML, typically at `/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml`)
+    - `wayland-scanner` tool for converting XML protocol files into code
 - A running Wayland compositor (e.g., Sway, Weston, GNOME on Wayland) to test against
 
 ### Build
 
+To build the object file:
 ```bash
-# Build the library object file
 make build
-
-# Clean object files
+```
+To clean the object folder:
+```bash
 make clean
 ```
 
 The build output is `./object/qurtuba.o`, which can be linked into your own client application.
 
-## Usage
-
-```c
-#include "src/qurtuba.h"
-
-// Create a 1024×768 window titled "My App"
-struct state *window = qurtuba_create_window("My App", 1024, 768);
-```
-
-Link `qurtuba.o` alongside your application code and `-lwayland-client` when building.
-
-## API reference
-
-### `qurtuba_create_window`
-
-```c
-struct state *qurtuba_create_window(const char *title, int width, int height);
-```
-
-Creates a Wayland window with an XDG toplevel surface and initializes double-buffered rendering.
-
-| Parameter | Type | Description |
-|---|---|---|
-| `title` | `const char *` | Window title shown by the compositor |
-| `width` | `int` | Initial window width in pixels |
-| `height` | `int` | Initial window height in pixels |
-
-**Returns:** a pointer to a `struct state` representing the window/client state, or `NULL` on failure (check `errors.h` for error codes).
-
 ## Contributing
 
 Issues and pull requests are welcome. Please keep changes focused and include a brief description of what problem they solve.
-
-## Author
-
-SilentSoul8R
-
-<!-- Add your license here, e.g. MIT, Apache-2.0 -->
