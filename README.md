@@ -6,7 +6,7 @@ A lightweight C library that provides an abstraction layer over `wayland-client.
 
 - Simple, single-call window creation (`qurtuba_create_window`)
 - Handles compositor, shared-memory, and window-manager binding for you
-- Double-buffered rendering with shared memory pools — no manual buffer juggling
+- Double-buffered rendering with shared memory pools, no manual buffer juggling
 - Separate event-dispatch threads for lifecycle events and render callbacks, so rendering never blocks input handling
 - Built-in bitfield-based error codes and optional colored debug logging
 
@@ -19,7 +19,7 @@ A lightweight C library that provides an abstraction layer over `wayland-client.
 - [Usage](#usage)
 - [API reference](#api-reference)
 - [Contributing](#contributing)
-- [License](#license)
+- [Author](#author)
 
 ## Stack
 
@@ -45,7 +45,7 @@ makefile         Build rules: compiles object files, generates XDG shell protoco
 
 ## How it fits together
 
-Qurtuba initializes a Wayland display connection, binds to the compositor, shared memory, and window manager interfaces, then creates an XDG toplevel surface. It manages two frame buffers using shared memory pools and dispatches Wayland events on separate threads — one for configuration/lifecycle events (default queue) and one for render callbacks (render queue). The render loop waits for buffer-release events, then invokes the `draw()` function to write pixel data and commits the surface.
+Qurtuba initializes a Wayland display connection, binds to the compositor, shared memory, and window manager interfaces, then creates an XDG toplevel surface. It manages two frame buffers using shared memory pools and dispatches Wayland events on separate threads, one for configuration/lifecycle events (default queue) and one for render callbacks (render queue). The render loop waits for buffer-release events, then invokes the `draw()` function to write pixel data and commits the surface.
 
 ## Installation
 
@@ -102,7 +102,8 @@ Creates a Wayland window with an XDG toplevel surface and initializes double-buf
 
 Issues and pull requests are welcome. Please keep changes focused and include a brief description of what problem they solve.
 
-## Author:
+## Author
+
 SilentSoul8R
 
 <!-- Add your license here, e.g. MIT, Apache-2.0 -->
