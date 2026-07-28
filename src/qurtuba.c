@@ -29,6 +29,8 @@
 
 #define STRING(x)	#x
 #define NUM_OF_BUFFERS 	2
+#define STATE(x) 	((struct state *) (x))
+#define DATA(x)		((struct data *) (x))
 
 struct frame 
 {	
@@ -117,20 +119,19 @@ static const struct wl_registry_listener wl_registry_listener = {
 static void set_registries(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version)
 {	
 	PRINT_LOG(LOG, "Found: " BOLD "%s" RESET, interface);
-	struct state * state = (struct state *) data;
 
 	if (! strcmp(interface, wl_compositor_interface.name))
 	{
-		state->compositor = wl_registry_bind(registery, name, &wl_compositor_interface, 6 /* wl_compositor_interface.version */);
+		STATE(data)->compositor = wl_registry_bind(registery, name, &wl_compositor_interface, 6 /* wl_compositor_interface.version */);
 		
-		if(! state->compositor)
+		if(! STATE(data)->compositor)
 		{
 			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 			exit(ERR_COMPOSITOR);
 		}
 	
 		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
-		wl_proxy_set_queue((struct wl_proxy *) state->compositor, state->default_queue);
+		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->compositor, STATE(data)->default_queue);
 		
 		return;
 	}
@@ -138,16 +139,16 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 	if (! strcmp(interface, wl_shm_interface.name))
 	{
 
-		state->shared_memory = wl_registry_bind(registery, name, &wl_shm_interface, wl_shm_interface.version);
+		STATE(data)->shared_memory = wl_registry_bind(registery, name, &wl_shm_interface, wl_shm_interface.version);
 	
-		if(! state->shared_memory)
+		if(! STATE(data)->shared_memory)
 		{
 			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 			exit(ERR_SHM);
 		}
 	
 		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
-		wl_proxy_set_queue((struct wl_proxy *) state->shared_memory, state->default_queue);
+		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->shared_memory, STATE(data)->default_queue);
 
 		return;
 	}
@@ -155,16 +156,16 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 	if (! strcmp(interface, xdg_wm_base_interface.name))
 	{
 
-		state->window_manager_base = wl_registry_bind(registery, name, &xdg_wm_base_interface, xdg_wm_base_interface.version);
+		STATE(data)->window_manager_base = wl_registry_bind(registery, name, &xdg_wm_base_interface, xdg_wm_base_interface.version);
 
-		if(! state->window_manager_base)
+		if(! STATE(data)->window_manager_base)
 		{ 
 			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 			exit(ERR_XDG_WM_BASE);
 		}
 	
 		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);	
-		wl_proxy_set_queue((struct wl_proxy *) state->window_manager_base, state->default_queue);
+		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->window_manager_base, STATE(data)->default_queue);
 		
 		return;
 	}
@@ -172,9 +173,11 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 
 static void handle_removed_registeries (void * data, struct wl_registry * registery, uint32_t name) {}
 
-static void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
+static void ping (void * data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 {
 	PRINT_LOG(LOG, "Application is active!");	
+	
+	(void) data;	
 	
 	xdg_wm_base_pong(xdg_wm_base, serial);
 }
@@ -216,16 +219,14 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 {
 	START_BENCHMARK(1);
 
-	struct state * state = (struct state *) data;
-
-	xdg_surface_ack_configure(state->xdg_surface, serial);
+	xdg_surface_ack_configure(STATE(data)->xdg_surface, serial);
 	
-	if(! state->buffer)
+	if(! STATE(data)->buffer)
 	{
 		PRINT_LOG(LOG, "Creating frame buffer...");
 
-		const uint32_t stride = state->width * 4;
-		const uint32_t frame_size = stride * state->height;
+		const uint32_t stride = STATE(data)->width * 4;
+		const uint32_t frame_size = stride * STATE(data)->height;
 
 		PRINT_LOG(LOG, "Each frame is of size " BOLD "%d" RESET " bytes", frame_size);
 		
@@ -233,39 +234,39 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 		
 		PRINT_LOG(LOG, "Total buffer size = " BOLD "%d" RESET " bytes", buf_size);
 		
-		state->fd = allocate_shm_file(buf_size);
+		STATE(data)->fd = allocate_shm_file(buf_size);
 
 		// Casting to pointer to uint8_t for pointer arthimatic
-		state->buffer = (uint8_t *) mmap(NULL, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, state->fd, 0);
-		if(state->buffer == MAP_FAILED)
+		STATE(data)->buffer = (uint8_t *) mmap(NULL, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, STATE(data)->fd, 0);
+		if(STATE(data)->buffer == MAP_FAILED)
 		{
-			PRINT_LOG(FAIL, "Unable to map memory from the annonymous file to " BOLD STRING(state->buffer) RESET);
-			close(state->fd);
+			PRINT_LOG(FAIL, "Unable to map memory from the annonymous file to " BOLD STRING(STATE(data)->buffer) RESET);
+			close(STATE(data)->fd);
 
 			exit(ERR_MEM);
 		}
 
-		PRINT_LOG(SUCCESS, "Mapped memory from the annonymous file to " BOLD "%s" RESET, STRING(metadata.buffer));
+		PRINT_LOG(SUCCESS, "Mapped memory from the annonymous file to " BOLD "%s" RESET, STRING(state->buffer));
 
-		struct wl_shm_pool * pool = wl_shm_create_pool(state->shared_memory, state->fd, buf_size);
-		if (! (state->frame = (struct frame *) calloc(NUM_OF_BUFFERS, sizeof(struct frame))))
+		struct wl_shm_pool * pool = wl_shm_create_pool(STATE(data)->shared_memory, STATE(data)->fd, buf_size);
+		if (! (STATE(data)->frame = (struct frame *) calloc(NUM_OF_BUFFERS, sizeof(struct frame))))
 		{
-			PRINT_LOG(FAIL, "Unable to allocate memory for " STRING(state->frame));
+			PRINT_LOG(FAIL, "Unable to allocate memory for " STRING(STATE(data)->frame));
 			exit(ERR_MEM);
 		}
 
 		for(uint8_t i = 0; i < NUM_OF_BUFFERS; i++)
 		{
-			state->frame[i].buffer = wl_shm_pool_create_buffer	(pool, 
-										 frame_size * i, 
-										 state->width, 
-										 state->height, 
-										 stride, 
-										 WL_SHM_FORMAT_ARGB8888);
+			STATE(data)->frame[i].buffer = wl_shm_pool_create_buffer	(pool, 
+											 frame_size * i, 
+											 STATE(data)->width, 
+											 STATE(data)->height, 
+											 stride, 
+											 WL_SHM_FORMAT_ARGB8888);
 
-			state->frame[i].pixels = (uint32_t *) (state->buffer + (frame_size * i));
-			wl_buffer_add_listener(state->frame[i].buffer, &wl_buffer_listener, &(state->frame[i]));
-			state->frame[i].free = true;
+			STATE(data)->frame[i].pixels = (uint32_t *) (STATE(data)->buffer + (frame_size * i));
+			wl_buffer_add_listener(STATE(data)->frame[i].buffer, &wl_buffer_listener, &(STATE(data)->frame[i]));
+			STATE(data)->frame[i].free = true;
 		}
 		
 		PRINT_LOG(LOG, "Created frame buffers...");
@@ -275,21 +276,21 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 
 	}
 	
-	wl_callback_destroy(state->callback);
+	wl_callback_destroy(STATE(data)->callback);
 	
 	xdg_surface_configure_end:
-	state->callback = wl_surface_frame(state->wl_surface);
-	wl_proxy_set_queue((struct wl_proxy *) state->callback, state->render_queue);
-	wl_callback_add_listener(state->callback, &wl_callback_listener, data);
+	STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
+	wl_proxy_set_queue((struct wl_proxy *) STATE(data)->callback, STATE(data)->render_queue);
+	wl_callback_add_listener(STATE(data)->callback, &wl_callback_listener, data);
 	for(int i = 0; i < NUM_OF_BUFFERS; i++)
 	{
-		if(state->frame[i].free)
+		if(STATE(data)->frame[i].free)
 		{
-			wl_surface_attach(state->wl_surface, state->frame[0].buffer, 0, 0);
+			wl_surface_attach(STATE(data)->wl_surface, STATE(data)->frame[0].buffer, 0, 0);
 			break;
 		}
 	}
-	wl_surface_commit(state->wl_surface);
+	wl_surface_commit(STATE(data)->wl_surface);
 	
 	END_BENCHMARK(1, "Event: " BOLD "%s()" RESET, __func__)
 }
@@ -298,7 +299,6 @@ static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_topl
 {
 	PRINT_LOG(LOG, "Event " BOLD "%s" RESET " dispatched..." "\n" "Width = %d; Height = %d", __func__, width, height);
 
-	struct state * state = (struct state *) ((struct data *) data)->state;
 	struct 
 	{
 		uint16_t width;
@@ -309,13 +309,13 @@ static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_topl
 	{
 		PRINT_LOG(LOG, "No height and width specified!" "\n" "Setting default width (%d) and height (%d)...", dimensions->width, dimensions->height);
 		
-		state->width = dimensions->width;
-		state->height = dimensions->height;
+		STATE(DATA(data)->state)->width = dimensions->width;
+		STATE(DATA(data)->state)->height = dimensions->height;
 	}
 	else 
 	{
-		state->width = width;
-		state->height = height;
+		STATE(DATA(data))->width = width;
+		STATE(DATA(data))->height = height;
 	}	
 }
 
@@ -332,23 +332,21 @@ static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t
 	time = callback_data;
 	
 	#endif
-
-	struct state * state = (struct state *) data;
 	
-	wl_callback_destroy(state->callback);
-	state->callback = wl_surface_frame(state->wl_surface);
-	wl_proxy_set_queue((struct wl_proxy *) state->callback, state->render_queue);
-	wl_callback_add_listener(state->callback, &wl_callback_listener, data);
+	wl_callback_destroy(STATE(data)->callback);
+	STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
+	wl_proxy_set_queue((struct wl_proxy *) STATE(data)->callback, STATE(data)->render_queue);
+	wl_callback_add_listener(STATE(data)->callback, &wl_callback_listener, data);
 	
 	struct frame * free_frame;
 
 	for(int i = 0; i < NUM_OF_BUFFERS; i++)
 	{
-		PRINT_LOG(LOG, "frame[%d] is " BOLD "%s" RESET, i, state->frame[i].free ? "free" : "not free");
+		PRINT_LOG(LOG, "frame[%d] is " BOLD "%s" RESET, i, STATE(data)->frame[i].free ? "free" : "not free");
 		
-		if(state->frame[i].free)
+		if(STATE(data)->frame[i].free)
 		{	
-			free_frame = &(state->frame[i]);
+			free_frame = &(STATE(data)->frame[i]);
 			PRINT_LOG(LOG, BOLD "frame[%d]" RESET " chosen for rendering", i);
 			
 			goto done_callback_free;
@@ -360,20 +358,18 @@ static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t
 	done_callback_free:
 	free_frame->free = false;
 
-	draw(free_frame->pixels, state->height, state->width);
+	draw(free_frame->pixels, STATE(data)->height, STATE(data)->width);
 
-	wl_surface_attach(state->wl_surface, free_frame->buffer, 0, 0);
-	wl_surface_damage_buffer(state->wl_surface, 0, 0, state->width, state->height);
-	wl_surface_commit(state->wl_surface);
+	wl_surface_attach(STATE(data)->wl_surface, free_frame->buffer, 0, 0);
+	wl_surface_damage_buffer(STATE(data)->wl_surface, 0, 0, STATE(data)->width, STATE(data)->height);
+	wl_surface_commit(STATE(data)->wl_surface);
 }
 
 static void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel)
 {
-	PRINT_LOG(LOG, "Quitting:...");
+	PRINT_LOG(LOG, "Quitting...");
 	
-	struct state * state = (struct state *) data;
-	state->running = false;
-	PRINT_LOG(LOG, "%s", state->running ? "running true" : "running false");
+	STATE(DATA(data)->state)->running = false;
 }
 
 static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
@@ -390,12 +386,10 @@ static void release_buffer(void *data, struct wl_buffer *wl_buffer)
 static int dispatch_display_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_display_queue()) RESET);
-      	
-	struct state * state = (struct state *) args;
 
 	int queue_ret_val = 0;
-	while(state->running && queue_ret_val != -1)	
-		queue_ret_val = wl_display_dispatch_queue(state->display, state->default_queue);
+	while(STATE(args)->running && queue_ret_val != -1)	
+		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->default_queue);
 	
 	return queue_ret_val;
 	return 0;
@@ -404,11 +398,10 @@ static int dispatch_display_queue(void * args)
 static int dispatch_render_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_render_queue()) RESET);
-	struct state * state = (struct state *) args;
 		
 	int queue_ret_val = 0;
-	while(state->running && queue_ret_val != -1)
-		queue_ret_val = wl_display_dispatch_queue(state->display, state->render_queue);
+	while(STATE(args)->running && queue_ret_val != -1)
+		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->render_queue);
 	return queue_ret_val;
 	return 0;
 }
@@ -503,20 +496,6 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->render_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 
 	wl_surface_commit(state->wl_surface);
-
-	state->running = true;
-
-	thrd_t display_queue_thrd_id;
-	thrd_create(&display_queue_thrd_id, dispatch_display_queue, (void *) state);
-	
-	int display_queue_thrd_ret_val;
-
-	thrd_t render_queue_thrd_id;
-	thrd_create(&render_queue_thrd_id, dispatch_render_queue, (void *) state);
-	int render_queue_thrd_ret_val; 
-	
-	thrd_join(render_queue_thrd_id, &render_queue_thrd_ret_val);
-	thrd_join(display_queue_thrd_id, &display_queue_thrd_ret_val);
 	
 	return state;
 }
