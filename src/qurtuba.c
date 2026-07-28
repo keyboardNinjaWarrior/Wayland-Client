@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <threads.h>
+#include <inttypes.h>
 #include <wayland-client.h>
 
 #include <sys/mman.h>
@@ -297,25 +298,26 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 
 static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
 {
-	PRINT_LOG(LOG, "Event " BOLD "%s" RESET " dispatched..." "\n" "Width = %d; Height = %d", __func__, width, height);
+	PRINT_LOG(LOG, "Event " BOLD "%s" RESET " dispatched..." "\n" LOG " " "Width = %d; Height = %d", __func__, width, height);
 
-	struct 
+	struct dimensions
 	{
 		uint16_t width;
 		uint16_t height;
-	} * dimensions = ((struct data *) data)->arguments;
+	} * dimensions = DATA(data)->arguments;
 	
 	if(width == 0 && height == 0) 
 	{
-		PRINT_LOG(LOG, "No height and width specified!" "\n" "Setting default width (%d) and height (%d)...", dimensions->width, dimensions->height);
+		PRINT_LOG(LOG, "No height and width specified!" "\n" "Setting default width (%" PRIu16 ") and height (%" PRIu16 ")...", 
+				dimensions->width, dimensions->height);
 		
 		STATE(DATA(data)->state)->width = dimensions->width;
 		STATE(DATA(data)->state)->height = dimensions->height;
 	}
 	else 
 	{
-		STATE(DATA(data))->width = width;
-		STATE(DATA(data))->height = height;
+		STATE(DATA(data)->state)->width = width;
+		STATE(DATA(data)->state)->height = height;
 	}	
 }
 
@@ -470,7 +472,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->xdg_toplevel) RESET " from " BOLD STRING(xdg_surface_get_toplevel()) RESET);
 
 	// TODO: Try converting them into annonymous objects	
-	struct
+	struct dimensions
 	{
 		uint16_t width;
 		uint16_t height;
@@ -498,4 +500,55 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	wl_surface_commit(state->wl_surface);
 	
 	return state;
+}
+
+struct qurtuba_launch_window_return_value
+{
+	thrd_t display_queue_thrd_id; 
+	thrd_t render_queue_thrd_id;
+};
+
+void qurtuba_launch_window(struct state * state)
+{
+	state->running = true;
+
+	thrd_t display_queue_thrd_id;
+	thrd_create(&display_queue_thrd_id, dispatch_display_queue, (void *) state);
+	int display_queue_thrd_ret_val;
+
+	thrd_t render_queue_thrd_id;
+	thrd_create(&render_queue_thrd_id, dispatch_render_queue, (void *) state);
+	int render_queue_thrd_ret_val;
+	
+	// TODO: Remove this and put it maybe in qurtuba_close_window()
+	thrd_join(render_queue_thrd_id, &render_queue_thrd_ret_val);
+	thrd_join(display_queue_thrd_id, &display_queue_thrd_ret_val);
+}
+
+void qurtuba_close_window(struct state * state)
+{
+	for(int i = 0; i < NUM_OF_BUFFERS; i++)	wl_buffer_destroy(state->frame[i].buffer);
+
+	wl_callback_destroy(state->callback);
+	xdg_toplevel_destroy(state->xdg_toplevel);
+	xdg_surface_destroy(state->xdg_surface);
+	wl_surface_destroy(state->wl_surface);
+	xdg_wm_base_destroy(state->window_manager_base);
+	wl_shm_destroy(state->shared_memory);
+	wl_compositor_destroy(state->compositor);
+	wl_display_disconnect(state->display);
+	
+	const uint32_t stride = state->width * 4;
+	const uint32_t frame_size = stride * state->height;
+	const uint32_t buf_size = frame_size * NUM_OF_BUFFERS;
+
+	if(munmap(state->buffer, buf_size) < 0)
+	{
+		PRINT_LOG(FAIL, "Unable to free memory: " BOLD STRING(state->buffer) RESET " having size = " BOLD "%d" RESET, buf_size);
+		exit(ERR_MEM);
+	}
+		
+	close(state->fd);
+	free(state->frame);
+	free(state);
 }
