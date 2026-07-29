@@ -66,6 +66,9 @@ struct state
 	uint16_t width;
 	uint16_t height;
 	
+	uint16_t width_to_set;
+	uint16_t height_to_set;
+
 	int fd;
 	const uint8_t len;
 	
@@ -77,20 +80,20 @@ struct data {
 	void * arguments;
 };
 
-static void ping (void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial);
+static void ping (void * data, struct xdg_wm_base * xdg_wm_base, uint32_t serial);
 static const struct xdg_wm_base_listener window_manager_base_listener = {
 	.ping = &ping
 };
 
-static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t serial);
+static void configure_surface(void * data, struct xdg_surface * xdg_surface, uint32_t serial);
 static const struct xdg_surface_listener xdg_surface_listener = {
 	.configure = &configure_surface  
 };
 
-static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states);
+static void configure_toplevel_surface(void * data, struct xdg_toplevel * xdg_toplevel, int32_t width, int32_t height, struct wl_array * states);
 static void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel);
-static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height);
-static void set_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities);
+static void configure_toplevel_bounds (void * data, struct xdg_toplevel * xdg_toplevel, int32_t width, int32_t height);
+static void set_wm_capabilities (void * data, struct xdg_toplevel * xdg_toplevel, struct wl_array * capabilities);
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.configure = &configure_toplevel_surface,
 	.close = &close_xdg_toplevel,
@@ -98,12 +101,12 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.wm_capabilities = set_wm_capabilities
 };
 
-static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data);
+static void done_callback (void * data, struct wl_callback * wl_callback, uint32_t callback_data);
 static const struct wl_callback_listener wl_callback_listener = {
 	.done = &done_callback
 };
 
-static void release_buffer(void *data, struct wl_buffer *wl_buffer);
+static void release_buffer(void * data, struct wl_buffer * wl_buffer);
 static const struct wl_buffer_listener wl_buffer_listener = {
 	.release = &release_buffer
 };
@@ -184,7 +187,7 @@ static void ping (void * data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 }
 
 // XXX: Take this out!!!
-extern int memfd_create(const char *name, unsigned int flags);
+extern int memfd_create(const char * name, unsigned int flags);
 
 // TODO: Randomize name of file. Maybe use /dev/urandom
 inline static int allocate_shm_file(const uint32_t buf_size)
@@ -214,7 +217,7 @@ inline static int allocate_shm_file(const uint32_t buf_size)
 }
 
 
-// TODO: configure_toplevel: width == 0 and heingth == 0 not necisserily when the window is created 
+// TODO: configure_toplevel: width == 0 and height == 0 not necisserily when the window is created 
 // NOTE: metadata.len was number of frame buffers
 static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint32_t serial)
 {
@@ -299,25 +302,20 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
 {
 	PRINT_LOG(LOG, "Event " BOLD "%s" RESET " dispatched..." "\n" LOG " " "Width = %d; Height = %d", __func__, width, height);
-
-	struct dimensions
-	{
-		uint16_t width;
-		uint16_t height;
-	} * dimensions = DATA(data)->arguments;
 	
 	if(width == 0 && height == 0) 
 	{
 		PRINT_LOG(LOG, "No height and width specified!" "\n" "Setting default width (%" PRIu16 ") and height (%" PRIu16 ")...", 
-				dimensions->width, dimensions->height);
+				STATE(data)->width_to_set, STATE(data)->height_to_set);
 		
-		STATE(DATA(data)->state)->width = dimensions->width;
-		STATE(DATA(data)->state)->height = dimensions->height;
+		STATE(data)->width = STATE(data)->width_to_set;
+		STATE(data)->height = STATE(data)->height_to_set;
+
 	}
 	else 
 	{
-		STATE(DATA(data)->state)->width = width;
-		STATE(DATA(data)->state)->height = height;
+		STATE(data)->width = width;
+		STATE(data)->height = height;
 	}	
 }
 
@@ -367,11 +365,11 @@ static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t
 	wl_surface_commit(STATE(data)->wl_surface);
 }
 
-static void close_xdg_toplevel(void *data, struct xdg_toplevel *xdg_toplevel)
+static void close_xdg_toplevel(void * data, struct xdg_toplevel * xdg_toplevel)
 {
 	PRINT_LOG(LOG, "Quitting...");
 	
-	STATE(DATA(data)->state)->running = false;
+	STATE(data)->running = false;
 }
 
 static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
@@ -461,7 +459,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->xdg_surface) RESET " from " BOLD STRING(xdg_wm_base_get_xdg_surface()) RESET);
 	
-	xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, state);
+	xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, (void *) state);
 		
 	if(! (state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface)))
 	{
@@ -471,22 +469,13 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->xdg_toplevel) RESET " from " BOLD STRING(xdg_surface_get_toplevel()) RESET);
 
-	// TODO: Try converting them into annonymous objects	
-	struct dimensions
-	{
-		uint16_t width;
-		uint16_t height;
-	} dimensions = {
-		.width = width,
-		.height = height
-	};
 
-	struct data data = {
-		.state = state,
-		.arguments = (void *) &dimensions 
-	};
+	state->width_to_set = width;
+	state->height_to_set = height;
 
-	xdg_toplevel_add_listener(state->xdg_toplevel, &xdg_toplevel_listener, (void *) &data);
+	// TODO: Try converting them into annonymous objects
+	// TODO: Heap allocation
+	xdg_toplevel_add_listener(state->xdg_toplevel, &xdg_toplevel_listener, (void *) state);
 	xdg_toplevel_set_title(state->xdg_toplevel, title);
 	
 	if(! (state->render_queue = wl_display_create_queue(state->display)))
