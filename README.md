@@ -83,9 +83,3 @@ The build output is `./object/qurtuba.o`, which can be linked into your own clie
 ## Contributing
 
 Issues and pull requests are welcome. Please keep changes focused and include a brief description of what problem they solve.
-
----
-<div align = center>
-    <img width="250" height="250" alt="Logo Qurtuba" src="https://github.com/user-attachments/assets/ec8e866b-f889-4768-a008-5643491cea84"  />
-</div>
-
