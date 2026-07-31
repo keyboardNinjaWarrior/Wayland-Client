@@ -9,18 +9,13 @@ DEBUG_FLAGS := -pg -g3 -DDEBUG
 # TODO: Find a way to overide OBJECT variable and set it to argument passed to makefile
 
 # Project Build
-build: unlinked-qurtuba.o render.o xdg-shell-protocol.o xdg-shell-protocol.o
-	@echo "[ld] Combining object files togather: unlinked-qurtuba.o render.o xdg-shell-protocol.o xdg-shell-protocol.o..." 
-	@ld -r $(OBJECT)/unlinked-qurtuba.o $(OBJECT)/render.o $(OBJECT)/xdg-shell-protocol.o -o $(OBJECT)/qurtuba.o
+build: unlinked-qurtuba.o xdg-shell-protocol.o xdg-shell-protocol.o
+	@echo "[ld] Combining object files togather into qurtuba.o: unlinked-qurtuba.o xdg-shell-protocol.o xdg-shell-protocol.o..." 
+	@ld -r $(OBJECT)/unlinked-qurtuba.o $(OBJECT)/xdg-shell-protocol.o -o $(OBJECT)/qurtuba.o
 
-unlinked-qurtuba.o: ./src/qurtuba.c ./include/render.h ./include/errors.h ./xdg-shell-protocol/xdg-shell-client-protocol.h directories 
+unlinked-qurtuba.o: ./src/qurtuba.c ./include/errors.h ./xdg-shell-protocol/xdg-shell-client-protocol.h directories 
 	@echo "[cc] Compiling object file: $@"
 	@cc $(DEBUG_FLAGS) $(INCLUDE) -I./xdg-shell-protocol -o $(OBJECT)/unlinked-qurtuba.o -c ./src/qurtuba.c $(DYNAMIC_LIB)
-
-# TODO: Remove render.c
-render.o: ./src/render.c ./include/render.h directories 
-	@echo "[cc] Compiling object file: $@"
-	@cc $(DEBUG_FLAGS) $(INCLUDE) -o $(OBJECT)/render.o -c ./src/render.c
 
 # Protocols generated locally 
 xdg-shell-protocol.o: ./xdg-shell-protocol/xdg-shell-protocol.c directories 

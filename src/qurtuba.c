@@ -26,7 +26,6 @@
 #include "xdg-shell-client-protocol.h"
 #include "errors.h"
 #include "debug.h"
-#include "render.h"
 
 #define STRING(x)	#x
 #define NUM_OF_BUFFERS 	2
@@ -59,6 +58,7 @@ struct state
 	struct wl_event_queue * render_queue;
 	
 	struct wl_callback * callback;
+	void (* draw) (uint32_t *, uint16_t, uint16_t);
 	
 	uint8_t * buffer;
 	struct frame * frame;
@@ -358,7 +358,7 @@ static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t
 	done_callback_free:
 	free_frame->free = false;
 
-	draw(free_frame->pixels, STATE(data)->height, STATE(data)->width);
+	STATE(data)->draw(free_frame->pixels, STATE(data)->height, STATE(data)->width);
 
 	wl_surface_attach(STATE(data)->wl_surface, free_frame->buffer, 0, 0);
 	wl_surface_damage_buffer(STATE(data)->wl_surface, 0, 0, STATE(data)->width, STATE(data)->height);
@@ -407,7 +407,7 @@ static int dispatch_render_queue(void * args)
 }
 
 
-struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height)
+struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height, void (* draw) (uint32_t *, uint16_t, uint16_t))
 {
 	struct state * state = (struct state *) malloc(sizeof(struct state));
 	memset((void *) state, 0, sizeof(struct state));	
@@ -459,6 +459,8 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->xdg_surface) RESET " from " BOLD STRING(xdg_wm_base_get_xdg_surface()) RESET);
 	
+	state->draw = draw;
+
 	xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, (void *) state);
 		
 	if(! (state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface)))
@@ -468,7 +470,6 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	}
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->xdg_toplevel) RESET " from " BOLD STRING(xdg_surface_get_toplevel()) RESET);
-
 
 	state->width_to_set = width;
 	state->height_to_set = height;
