@@ -1,4 +1,15 @@
-<!--Author: Singhera -->
+<!--Author: Sanghera -->
+
+<div align="center">
+  
+  <img width="250" height="250" alt="Logo_Qurtuba__1_-removebg-preview (1)" src="https://github.com/user-attachments/assets/7a6b8d71-cc58-4775-b668-c9bc4246373c" />
+</div>
+
+
+
+
+
+
 
 # Qurtuba
 
