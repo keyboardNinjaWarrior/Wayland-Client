@@ -1,4 +1,15 @@
-<!--Author: Singhera -->
+<!--Author: Sanghera -->
+
+<div align="center">
+  
+  <img width="250" height="250" alt="Logo_Qurtuba__1_-removebg-preview (1)" src="https://github.com/user-attachments/assets/7a6b8d71-cc58-4775-b668-c9bc4246373c" />
+</div>
+
+
+
+
+
+
 
 # Qurtuba
 
@@ -72,3 +83,9 @@ The build output is `./object/qurtuba.o`, which can be linked into your own clie
 ## Contributing
 
 Issues and pull requests are welcome. Please keep changes focused and include a brief description of what problem they solve.
+
+---
+<div align = center>
+    <img width="250" height="250" alt="Logo Qurtuba" src="https://github.com/user-attachments/assets/ec8e866b-f889-4768-a008-5643491cea84"  />
+</div>
+
