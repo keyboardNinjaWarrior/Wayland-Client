@@ -1,6 +1,7 @@
 #ifndef ERRORS_H
 #define ERRORS_H
 
+// TODO: Use decimal instead of binary format
 #define ERR_DISPLAY		(0b0001 << 0)
 #define ERR_COMPOSITOR		(0b0010 << 0)
 #define ERR_SHM			(0b0100 << 0)
@@ -10,5 +11,6 @@
 #define ERR_XDG_TOPLEVEL	(0b0100 << 4)
 #define ERR_MEM			(0b1000 << 4)
 #define	ERR_FILE		(0b0001 << 8)
+#define ERR_SEAT		(0b0010 << 8)
 
 #endif

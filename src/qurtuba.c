@@ -36,11 +36,11 @@ struct frame
 {	
 	struct wl_buffer * buffer;
 	uint32_t * pixels;
-	bool free;
+	uint8_t free;
 
-	#ifdef DEBUG
+#ifdef DEBUG
 	uint8_t id;
-	#endif
+#endif
 };
 
 struct state 
@@ -49,15 +49,18 @@ struct state
 	struct wl_registry * registry;
 	struct wl_compositor * compositor;
 	struct wl_shm * shared_memory;
-	struct xdg_wm_base * window_manager_base;
+	struct wl_seat * seat;
 	struct wl_surface * wl_surface;
+	struct wl_pointer * pointer;
+
+	struct xdg_wm_base * window_manager_base;
 	struct xdg_surface * xdg_surface;
 	struct xdg_toplevel * xdg_toplevel;
 
 	struct wl_event_queue * default_queue;
-	struct wl_event_queue * render_queue;
-	
+	struct wl_event_queue * render_queue;	
 	struct wl_callback * callback;
+
 	void (* draw) (uint32_t *, uint16_t, uint16_t);
 	
 	uint8_t * buffer;
@@ -70,9 +73,8 @@ struct state
 	uint16_t height_to_set;
 
 	int fd;
-	const uint8_t len;
-	
-	bool running;
+
+	uint8_t running;
 };
 
 struct data {
@@ -118,6 +120,33 @@ static const struct wl_registry_listener wl_registry_listener = {
 	.global_remove = &handle_removed_registeries
 };
 
+static void frame(void *data, struct wl_pointer *wl_pointer) { PRINT_LOG(LOG, BOLD "FRAME!!!" RESET); }
+static void enter (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface, wl_fixed_t surface_x,  wl_fixed_t surface_y) {}
+void leave (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface) {}
+void motion (void *data, struct wl_pointer *wl_pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {}
+void button (void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {}
+void axis (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {}
+void axis_source (void *data, struct wl_pointer *wl_pointer, uint32_t axis_source) {}
+void axis_stop (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis) {}
+void axis_discrete (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t discrete) {}
+void axis_value120 (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t value120) {}
+void axis_relative_direction (void *data, struct wl_pointer *wl_pointer, uint32_t axis, uint32_t direction) {}
+
+static const struct wl_pointer_listener wl_pointer_listener = {
+	
+	.enter = enter,
+	.leave = leave,
+	.motion = motion,
+	.button = button,
+	.axis = axis,
+	.frame = &frame,
+	.axis_source = axis_source,
+	.axis_stop = axis_stop,
+	.axis_discrete = axis_discrete,
+	.axis_value120 = axis_value120,
+	.axis_relative_direction = axis_relative_direction
+};
+
 // There should be an array that should pe passed
 // Maybe it's good to store all of them
 static void set_registries(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version)
@@ -130,11 +159,11 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 		
 		if(! STATE(data)->compositor)
 		{
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(STATE(data)->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 			exit(ERR_COMPOSITOR);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(STATE(data)->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->compositor, STATE(data)->default_queue);
 		
 		return;
@@ -142,7 +171,6 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 
 	if (! strcmp(interface, wl_shm_interface.name))
 	{
-
 		STATE(data)->shared_memory = wl_registry_bind(registery, name, &wl_shm_interface, wl_shm_interface.version);
 	
 		if(! STATE(data)->shared_memory)
@@ -151,7 +179,7 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 			exit(ERR_SHM);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(STATE(data)->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->shared_memory, STATE(data)->default_queue);
 
 		return;
@@ -168,8 +196,24 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 			exit(ERR_XDG_WM_BASE);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);	
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(STATE(data)->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);	
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->window_manager_base, STATE(data)->default_queue);
+		
+		return;
+	}
+
+	if(! strcmp(interface, wl_seat_interface.name))
+	{
+		STATE(data)->seat = wl_registry_bind(registery, name, &wl_seat_interface, wl_seat_interface.version);
+
+		if(! STATE(data)->seat)
+		{
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->seat) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+			exit(ERR_SEAT);
+		}
+
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(STATE(data)->seat) RESET " from " BOLD STRING(wl_registery_bind()) RESET);	
+		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->seat, STATE(data)->default_queue);
 		
 		return;
 	}
@@ -322,16 +366,14 @@ static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_topl
 static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data)
 {
 	
-	#ifdef DEBUG 
-	
+#ifdef DEBUG 	
 	static uint32_t time = 0;
 	if(time == 0)	time = callback_data;
 	
 	PRINT_LOG(BENCHMARK, "\u0394callback = %d ms", callback_data - time);
 	
 	time = callback_data;
-	
-	#endif
+#endif
 	
 	wl_callback_destroy(STATE(data)->callback);
 	STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
@@ -486,17 +528,21 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	}
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->render_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
-
-	wl_surface_commit(state->wl_surface);
+		
+	wl_surface_commit(state->wl_surface);	
 	
+	if(! (state->pointer = wl_seat_get_pointer(state->seat)))
+	{
+		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->pointer) RESET " from " BOLD STRING(wl_seat_get_pointer()) RESET);
+		exit(ERR_SEAT);
+	}
+
+	PRINT_LOG(FAIL, "Initialized " BOLD STRING(state->pointer) RESET " from " BOLD STRING(wl_seat_get_pointer()) RESET);
+	
+	wl_pointer_add_listener(state->pointer, &wl_pointer_listener, NULL);
+
 	return state;
 }
-
-struct qurtuba_launch_window_return_value
-{
-	thrd_t display_queue_thrd_id; 
-	thrd_t render_queue_thrd_id;
-};
 
 void qurtuba_launch_window(struct state * state)
 {
