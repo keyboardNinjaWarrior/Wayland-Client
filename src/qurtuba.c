@@ -120,31 +120,30 @@ static const struct wl_registry_listener wl_registry_listener = {
 	.global_remove = &handle_removed_registeries
 };
 
-static void frame(void *data, struct wl_pointer *wl_pointer) { PRINT_LOG(LOG, BOLD "FRAME!!!" RESET); }
-static void enter (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface, wl_fixed_t surface_x,  wl_fixed_t surface_y) {}
-void leave (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface) {}
-void motion (void *data, struct wl_pointer *wl_pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {}
-void button (void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {}
-void axis (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {}
-void axis_source (void *data, struct wl_pointer *wl_pointer, uint32_t axis_source) {}
-void axis_stop (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis) {}
-void axis_discrete (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t discrete) {}
-void axis_value120 (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t value120) {}
-void axis_relative_direction (void *data, struct wl_pointer *wl_pointer, uint32_t axis, uint32_t direction) {}
-
+static void frame (void *data, struct wl_pointer *wl_pointer);
+static void enter (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface, wl_fixed_t surface_x,  wl_fixed_t surface_y);
+void leave (void *data, struct wl_pointer *wl_pointer, uint32_t serial, struct wl_surface *surface);
+void motion (void *data, struct wl_pointer *wl_pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y);
+void button (void *data, struct wl_pointer *wl_pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state);
+void axis (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis, wl_fixed_t value);
+void axis_source (void *data, struct wl_pointer *wl_pointer, uint32_t axis_source);
+void axis_stop (void *data, struct wl_pointer *wl_pointer, uint32_t time, uint32_t axis);
+void axis_discrete (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t discrete);
+void axis_value120 (void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t value120);
+void axis_relative_direction (void *data, struct wl_pointer *wl_pointer, uint32_t axis, uint32_t direction);
 static const struct wl_pointer_listener wl_pointer_listener = {
 	
-	.enter = enter,
-	.leave = leave,
-	.motion = motion,
-	.button = button,
-	.axis = axis,
+	.enter = &enter,
+	.leave = &leave,
+	.motion = &motion,
+	.button = &button,
+	.axis = &axis,
 	.frame = &frame,
-	.axis_source = axis_source,
-	.axis_stop = axis_stop,
-	.axis_discrete = axis_discrete,
-	.axis_value120 = axis_value120,
-	.axis_relative_direction = axis_relative_direction
+	.axis_source = &axis_source,
+	.axis_stop = &axis_stop,
+	.axis_discrete = &axis_discrete,
+	.axis_value120 = &axis_value120,
+	.axis_relative_direction = &axis_relative_direction
 };
 
 // There should be an array that should pe passed
@@ -340,7 +339,7 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 	}
 	wl_surface_commit(STATE(data)->wl_surface);
 	
-	END_BENCHMARK(1, "Event: " BOLD "%s()" RESET, __func__)
+	END_BENCHMARK(1, "Event: " BOLD "%s()" RESET, __func__);
 }
 
 static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states)
@@ -414,8 +413,8 @@ static void close_xdg_toplevel(void * data, struct xdg_toplevel * xdg_toplevel)
 	STATE(data)->running = false;
 }
 
-static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
-static void set_wm_capabilities (void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities) {}
+static void configure_toplevel_bounds (void * data, struct xdg_toplevel * xdg_toplevel, int32_t width, int32_t height) {}
+static void set_wm_capabilities (void * data, struct xdg_toplevel * xdg_toplevel, struct wl_array * capabilities) {}
 
 static void release_buffer(void *data, struct wl_buffer *wl_buffer)
 {	
@@ -425,16 +424,33 @@ static void release_buffer(void *data, struct wl_buffer *wl_buffer)
 	PRINT_LOG(LOG, BOLD "frame[%d]" RESET " freed", frame_to_be_free->id);
 }
 
+static void frame (void * data, struct wl_pointer * wl_pointer) {}
+static void enter (void * data, struct wl_pointer * wl_pointer, uint32_t serial, struct wl_surface * surface, wl_fixed_t surface_x,  wl_fixed_t surface_y) {}
+void leave (void * data, struct wl_pointer * wl_pointer, uint32_t serial, struct wl_surface * surface) {}
+void motion (void * data, struct wl_pointer * wl_pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y) {}
+
+void button (void * data, struct wl_pointer * wl_pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state)
+{
+	PRINT_LOG(LOG, "Event dispatched: " BOLD "%s" RESET, __func__);
+	xdg_toplevel_move(STATE(data)->xdg_toplevel, STATE(data)->seat, serial);
+}
+
+void axis (void * data, struct wl_pointer * wl_pointer, uint32_t time, uint32_t axis, wl_fixed_t value) {}
+void axis_source (void * data, struct wl_pointer * wl_pointer, uint32_t axis_source) {}
+void axis_stop (void * data, struct wl_pointer * wl_pointer, uint32_t time, uint32_t axis) {}
+void axis_discrete (void * data, struct wl_pointer * wl_pointer, uint32_t axis, int32_t discrete) {}
+void axis_value120 (void * data, struct wl_pointer * wl_pointer, uint32_t axis, int32_t value120) {}
+void axis_relative_direction (void * data, struct wl_pointer * wl_pointer, uint32_t axis, uint32_t direction) {}
+
 static int dispatch_display_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_display_queue()) RESET);
 
 	int queue_ret_val = 0;
-	while(STATE(args)->running && queue_ret_val != -1)	
+	while(STATE(args)->running && queue_ret_val != -1)
 		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->default_queue);
-	
+
 	return queue_ret_val;
-	return 0;
 }
 
 static int dispatch_render_queue(void * args)
@@ -444,10 +460,9 @@ static int dispatch_render_queue(void * args)
 	int queue_ret_val = 0;
 	while(STATE(args)->running && queue_ret_val != -1)
 		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->render_queue);
-	return queue_ret_val;
-	return 0;
-}
 
+	return queue_ret_val;
+}
 
 struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height, void (* draw) (uint32_t *, uint16_t, uint16_t))
 {
@@ -531,6 +546,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 		
 	wl_surface_commit(state->wl_surface);	
 	
+	// TODO: Make a seperate queue for it
 	if(! (state->pointer = wl_seat_get_pointer(state->seat)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->pointer) RESET " from " BOLD STRING(wl_seat_get_pointer()) RESET);
@@ -539,7 +555,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 
 	PRINT_LOG(FAIL, "Initialized " BOLD STRING(state->pointer) RESET " from " BOLD STRING(wl_seat_get_pointer()) RESET);
 	
-	wl_pointer_add_listener(state->pointer, &wl_pointer_listener, NULL);
+	wl_pointer_add_listener(state->pointer, &wl_pointer_listener, state);
 
 	return state;
 }
