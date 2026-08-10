@@ -43,10 +43,11 @@ struct frame
 	#endif
 };
 
+struct wl_display * display;
+struct wl_registry * registry;
+
 struct state 
 {
-	struct wl_display * display;
-	struct wl_registry * registry;
 	struct wl_compositor * compositor;
 	struct wl_shm * shared_memory;
 	struct xdg_wm_base * window_manager_base;
@@ -389,7 +390,7 @@ static int dispatch_display_queue(void * args)
 
 	int queue_ret_val = 0;
 	while(STATE(args)->running && queue_ret_val != -1)	
-		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->default_queue);
+		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->default_queue);
 	
 	return queue_ret_val;
 	return 0;
@@ -401,7 +402,7 @@ static int dispatch_render_queue(void * args)
 		
 	int queue_ret_val = 0;
 	while(STATE(args)->running && queue_ret_val != -1)
-		queue_ret_val = wl_display_dispatch_queue(STATE(args)->display, STATE(args)->render_queue);
+		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->render_queue);
 	return queue_ret_val;
 	return 0;
 }
@@ -412,15 +413,15 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	struct state * state = (struct state *) malloc(sizeof(struct state));
 	memset((void *) state, 0, sizeof(struct state));	
 
-	if(! (state->display = wl_display_connect(NULL)))
+	if(! (display = wl_display_connect(NULL)))
 	{
-		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
+		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
 		exit(ERR_DISPLAY);
 	}
 	
-	PRINT_LOG(SUCCESS, "Initialize " BOLD "state->display" RESET " from " BOLD STRING(wl_display_connect()) RESET);
+	PRINT_LOG(SUCCESS, "Initialize " BOLD "display" RESET " from " BOLD STRING(wl_display_connect()) RESET);
 
-	if(! (state->default_queue = wl_display_create_queue(state->display)))
+	if(! (state->default_queue = wl_display_create_queue(display)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->default_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 		exit(ERR_DISPLAY);
@@ -428,18 +429,18 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->default_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 
-	state->registry = wl_display_get_registry(state->display);
-	wl_proxy_set_queue((struct wl_proxy *) state->registry, state->default_queue);
-	wl_registry_add_listener(state->registry, &wl_registry_listener, (void *) state);
+	registry = wl_display_get_registry(display);
+	wl_proxy_set_queue((struct wl_proxy *) registry, state->default_queue);
+	wl_registry_add_listener(registry, &wl_registry_listener, (void *) state);
 	
 	START_BENCHMARK(1);
 	
 	// Currently, it only binds compositor, shared memory and a window manager
 	// TODO: Support for binding custom registries
 
-	wl_display_roundtrip_queue(state->display, state->default_queue);	
+	wl_display_roundtrip_queue(display, state->default_queue);	
 
-	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(state->display, state->default_queue)) RESET);
+	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, state->default_queue)) RESET);
 	
 	xdg_wm_base_add_listener(state->window_manager_base, &window_manager_base_listener, NULL);
 
@@ -479,7 +480,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	xdg_toplevel_add_listener(state->xdg_toplevel, &xdg_toplevel_listener, (void *) state);
 	xdg_toplevel_set_title(state->xdg_toplevel, title);
 	
-	if(! (state->render_queue = wl_display_create_queue(state->display)))
+	if(! (state->render_queue = wl_display_create_queue(display)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->render_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 		exit(ERR_DISPLAY);
@@ -526,7 +527,7 @@ void qurtuba_close_window(struct state * state)
 	xdg_wm_base_destroy(state->window_manager_base);
 	wl_shm_destroy(state->shared_memory);
 	wl_compositor_destroy(state->compositor);
-	wl_display_disconnect(state->display);
+	wl_display_disconnect(display);
 	
 	const uint32_t stride = state->width * 4;
 	const uint32_t frame_size = stride * state->height;
