@@ -7,6 +7,7 @@
 // XXX:  DON'T TRY TO MAKE ERROR HANDLING IF STATEMENTS INTO A MACRO. EXTREMELY BAD IDEA. PLEASE BEAR WITH IT.
 // 	 Strips the abblity to write custom messages.	
 // XXX:	 Focus on translating current working application into a library
+// BUG:	 The window is unable to close itself _sometimes_.
 
 // TODO: Remove _GNU_SOURCE and replace it with POSIX macro instead for more cross platformness
 #define _GNU_SOURCE
@@ -45,6 +46,7 @@ struct frame
 
 struct wl_display * display;
 struct wl_registry * registry;
+struct wl_event_queue * registry_queue;
 
 struct state 
 {
@@ -112,30 +114,33 @@ static const struct wl_buffer_listener wl_buffer_listener = {
 	.release = &release_buffer
 };
 
-static void set_registries(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version);
-static void handle_removed_registeries (void * data, struct wl_registry * registery, uint32_t name);
+static void set_registries(void * data, struct wl_registry * registry, uint32_t name, const char * interface, uint32_t version);
+static void handle_removed_registries (void * data, struct wl_registry * registry, uint32_t name);
 static const struct wl_registry_listener wl_registry_listener = {
 	.global = &set_registries,
-	.global_remove = &handle_removed_registeries
+	.global_remove = &handle_removed_registries
 };
 
 // There should be an array that should pe passed
 // Maybe it's good to store all of them
-static void set_registries(void * data, struct wl_registry * registery, uint32_t name, const char * interface, uint32_t version)
+// TODO: Pipes
+static void set_registries(void * data, struct wl_registry * registry, uint32_t name, const char * interface, uint32_t version)
 {	
 	PRINT_LOG(LOG, "Found: " BOLD "%s" RESET, interface);
+	
+	START_BENCHMARK(1);
 
 	if (! strcmp(interface, wl_compositor_interface.name))
 	{
-		STATE(data)->compositor = wl_registry_bind(registery, name, &wl_compositor_interface, 6 /* wl_compositor_interface.version */);
+		STATE(data)->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 6 /* wl_compositor_interface.version */);
 		
 		if(! STATE(data)->compositor)
 		{
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 			exit(ERR_COMPOSITOR);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->compositor, STATE(data)->default_queue);
 		
 		return;
@@ -144,15 +149,15 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 	if (! strcmp(interface, wl_shm_interface.name))
 	{
 
-		STATE(data)->shared_memory = wl_registry_bind(registery, name, &wl_shm_interface, wl_shm_interface.version);
+		STATE(data)->shared_memory = wl_registry_bind(registry, name, &wl_shm_interface, wl_shm_interface.version);
 	
 		if(! STATE(data)->shared_memory)
 		{
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 			exit(ERR_SHM);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->shared_memory, STATE(data)->default_queue);
 
 		return;
@@ -161,22 +166,25 @@ static void set_registries(void * data, struct wl_registry * registery, uint32_t
 	if (! strcmp(interface, xdg_wm_base_interface.name))
 	{
 
-		STATE(data)->window_manager_base = wl_registry_bind(registery, name, &xdg_wm_base_interface, xdg_wm_base_interface.version);
+		STATE(data)->window_manager_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, xdg_wm_base_interface.version);
 
 		if(! STATE(data)->window_manager_base)
 		{ 
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 			exit(ERR_XDG_WM_BASE);
 		}
 	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registery_bind()) RESET);	
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registry_bind()) RESET);	
 		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->window_manager_base, STATE(data)->default_queue);
 		
 		return;
 	}
+
+	END_BENCHMARK(1, "Event " BOLD STRING(set_registries) RESET);
+	
 }
 
-static void handle_removed_registeries (void * data, struct wl_registry * registery, uint32_t name) {}
+static void handle_removed_registries (void * data, struct wl_registry * registry, uint32_t name) {}
 
 static void ping (void * data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 {
@@ -187,7 +195,7 @@ static void ping (void * data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 	xdg_wm_base_pong(xdg_wm_base, serial);
 }
 
-// XXX: Take this out!!!
+// NOTE: Take this out!!!
 extern int memfd_create(const char * name, unsigned int flags);
 
 // TODO: Randomize name of file. Maybe use /dev/urandom
@@ -393,7 +401,6 @@ static int dispatch_display_queue(void * args)
 		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->default_queue);
 	
 	return queue_ret_val;
-	return 0;
 }
 
 static int dispatch_render_queue(void * args)
@@ -403,15 +410,29 @@ static int dispatch_render_queue(void * args)
 	int queue_ret_val = 0;
 	while(STATE(args)->running && queue_ret_val != -1)
 		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->render_queue);
+
 	return queue_ret_val;
-	return 0;
 }
 
+static int dispatch_registry_queue(void * args)
+{
+	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_registry_queue()) RESET);
+		
+	int queue_ret_val = 0;
+	while(STATE(args)->running && queue_ret_val != -1)
+		queue_ret_val = wl_display_dispatch_queue(display, registry_queue); 
+
+	return queue_ret_val;
+}
 
 struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height, void (* draw) (uint32_t *, uint16_t, uint16_t))
 {
+	START_BENCHMARK(2);
+
 	struct state * state = (struct state *) malloc(sizeof(struct state));
 	memset((void *) state, 0, sizeof(struct state));	
+
+	END_BENCHMARK(2, "heap allocation of " BOLD STRING(struct state) RESET);
 
 	if(! (display = wl_display_connect(NULL)))
 	{
@@ -429,8 +450,16 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->default_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 
+	if(! (registry_queue = wl_display_create_queue(display)))
+	{
+		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(registry_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
+		exit(ERR_DISPLAY);
+	}
+	
+	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(registry_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
+	
 	registry = wl_display_get_registry(display);
-	wl_proxy_set_queue((struct wl_proxy *) registry, state->default_queue);
+	wl_proxy_set_queue((struct wl_proxy *) registry, registry_queue);
 	wl_registry_add_listener(registry, &wl_registry_listener, (void *) state);
 	
 	START_BENCHMARK(1);
@@ -438,9 +467,9 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	// Currently, it only binds compositor, shared memory and a window manager
 	// TODO: Support for binding custom registries
 
-	wl_display_roundtrip_queue(display, state->default_queue);	
+	wl_display_roundtrip_queue(display, registry_queue);	
 
-	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, state->default_queue)) RESET);
+	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, registry_queue)) RESET);
 	
 	xdg_wm_base_add_listener(state->window_manager_base, &window_manager_base_listener, NULL);
 
@@ -493,25 +522,24 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	return state;
 }
 
-struct qurtuba_launch_window_return_value
-{
-	thrd_t display_queue_thrd_id; 
-	thrd_t render_queue_thrd_id;
-};
-
 void qurtuba_launch_window(struct state * state)
 {
 	state->running = true;
 
-	thrd_t display_queue_thrd_id;
+	thrd_t display_queue_thrd_id = 0;
 	thrd_create(&display_queue_thrd_id, dispatch_display_queue, (void *) state);
-	int display_queue_thrd_ret_val;
+	int display_queue_thrd_ret_val = 0;
 
-	thrd_t render_queue_thrd_id;
+	thrd_t render_queue_thrd_id = 0;
 	thrd_create(&render_queue_thrd_id, dispatch_render_queue, (void *) state);
-	int render_queue_thrd_ret_val;
+	int render_queue_thrd_ret_val = 0;
+
+	thrd_t registry_queue_thrd_id;
+	thrd_create(&registry_queue_thrd_id, dispatch_registry_queue, (void *) state);
+	int registry_queue_thrd_ret_val = 0;
 	
 	// TODO: Remove this and put it maybe in qurtuba_close_window()
+	thrd_join(registry_queue_thrd_id, &registry_queue_thrd_ret_val);
 	thrd_join(render_queue_thrd_id, &render_queue_thrd_ret_val);
 	thrd_join(display_queue_thrd_id, &display_queue_thrd_ret_val);
 }
