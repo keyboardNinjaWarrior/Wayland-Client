@@ -34,29 +34,24 @@
 #define STRING(x)	#x
 #define NUM_OF_BUFFERS 	2
 #define STATE(x) 	((struct state *) (x))
-
-struct frame 
-{	
-	struct wl_buffer * buffer;
-	uint32_t * pixels;
-	bool free;
-
-#ifdef DEBUG
-	uint8_t id;
-#endif
-};
+#define MIN(x,y)	(((x) < (y)) ? (x) : (y))
 
 /* Global Singelton Objects
  * These are initilized at the start of window creation once only. These include:
- * 	1. wl_display
- * 	2. wl_registry
- * 	3. wl_event_queue
- * 	4. global_object
+ * 	1. display
+ * 	2. registry
+ *	3. compositor
+ *	4. shared memory
+ * 	5. singleton_queue
+ * 	6. global_object (list)
  */
 
 struct wl_display * display;
 struct wl_registry * registry;
-struct wl_event_queue * registry_queue;
+struct wl_compositor * compositor;
+struct wl_shm * shared_memory;
+
+struct wl_event_queue * singleton_queue;
 
 static struct global_object
 {
@@ -71,10 +66,19 @@ static struct global_object
 
 } * global_object = nullptr;
 
+struct frame 
+{	
+	struct wl_buffer * buffer;
+	uint32_t * pixels;
+	bool free;
+
+#ifdef DEBUG
+	uint8_t id;
+#endif
+};
+
 struct state 
 {
-	struct wl_compositor * compositor;
-	struct wl_shm * shared_memory;
 	struct xdg_wm_base * window_manager_base;
 	struct wl_surface * wl_surface;
 	struct xdg_surface * xdg_surface;
@@ -148,10 +152,46 @@ static const struct wl_registry_listener wl_registry_listener = {
  */
 static void create_global_object_list (void * data, struct wl_registry * registry, uint32_t name, const char * interface, uint32_t version)
 {
-	PRINT_LOG(LOG, "Found:" "\n\t" "registry: " BOLD "%p" RESET "\n\t" "name: " BOLD "%" PRIu32 RESET "\n\t" "interface: " BOLD "%s" RESET "\n\t" "version: " BOLD "%" PRIu32 RESET, registry, name, interface, version);
+	PRINT_LOG(LOG, "Found:" "\n\t" 
+		       "registry: " BOLD "%p" RESET "\n\t" 
+		       "name: " BOLD "%" PRIu32 RESET "\n\t" 
+		       "interface: " BOLD "%s" RESET "\n\t" 
+		       "version: " BOLD "%" PRIu32 RESET, 
+		       registry, name, interface, version);
 
 	static struct global_object ** node = &global_object;
 	
+	if (! strcmp(interface, wl_compositor_interface.name))
+	{
+		if(! (compositor = wl_registry_bind(registry, name, &wl_compositor_interface, MIN(wl_compositor_interface.version, version))))
+		{
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
+			exit(ERR_COMPOSITOR);
+		}
+	
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
+
+		// TODO: determine the queue
+		wl_proxy_set_queue((struct wl_proxy *) compositor, singleton_queue);
+		
+		return;
+	}
+	
+	if (! strcmp(interface, wl_shm_interface.name))
+	{	
+		if(! (shared_memory = wl_registry_bind(registry, name, &wl_shm_interface, MIN(wl_shm_interface.version, version))))
+		{
+			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
+			exit(ERR_SHM);
+		}
+	
+		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
+		
+		wl_proxy_set_queue((struct wl_proxy *) shared_memory, singleton_queue);
+
+		return;
+	}
+
 	// node is a pointer to pointer  to a struct global_object. So, 
 	// drefrencing  it  would   produce  a  pointer  to the  struct 
 	// global_object
@@ -168,59 +208,31 @@ static void create_global_object_list (void * data, struct wl_registry * registr
 
 	node = &(GLOBAL_OBJECT(node)->next);
 
-#undef 	GLOBAL_OBJECT	
+#undef 	GLOBAL_OBJECT
+	
+	return;
 }
 
-// TODO: Implement thread-pipes architecture
-static inline void bind_global_objects(struct state * state, struct wl_registry * registry, uint32_t name, const char * interface, uint32_t version)
+// TODO: Pass global_object instead of these parameters
+static inline void bind_global_objects(struct state * state, struct global_object * global_object)
 {	
-	PRINT_LOG(LOG, "Global Object:" "\n\t" "registry: " BOLD "%p" RESET "\n\t" "name: " BOLD "%" PRIu32 RESET "\n\t" "interface: " BOLD "%s" RESET "\n\t" "version: " BOLD "%" PRIu32 RESET, registry, name, interface, version);
-	
-	if (! strcmp(interface, wl_compositor_interface.name))
+	PRINT_LOG(LOG, "Global Object:" "\n\t" 
+		       "registry: " BOLD "%p" RESET "\n\t" 
+		       "name: " BOLD "%" PRIu32 RESET "\n\t" 
+		       "interface: " BOLD "%s" RESET "\n\t" 
+		       "version: " BOLD "%" PRIu32 RESET,
+		       registry, global_object->name, global_object->interface, global_object->version);
+
+	if (! strcmp(global_object->interface, xdg_wm_base_interface.name))
 	{
-		state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 6 /* wl_compositor_interface.version */);
-		
-		if(! state->compositor)
-		{
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
-			exit(ERR_COMPOSITOR);
-		}
-	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->compositor) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
-		wl_proxy_set_queue((struct wl_proxy *) state->compositor, state->default_queue);
-		
-		return;
-	}
-
-	if (! strcmp(interface, wl_shm_interface.name))
-	{
-
-		state->shared_memory = wl_registry_bind(registry, name, &wl_shm_interface, wl_shm_interface.version);
-	
-		if(! state->shared_memory)
-		{
-			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
-			exit(ERR_SHM);
-		}
-	
-		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->shared_memory) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
-		wl_proxy_set_queue((struct wl_proxy *) state->shared_memory, state->default_queue);
-
-		return;
-	}
-
-	if (! strcmp(interface, xdg_wm_base_interface.name))
-	{
-
-		state->window_manager_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, xdg_wm_base_interface.version);
-
-		if(! state->window_manager_base)
+		if(! (state->window_manager_base = wl_registry_bind(registry, global_object->name, &xdg_wm_base_interface, xdg_wm_base_interface.version)))
 		{ 
 			PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registry_bind()) RESET);
 			exit(ERR_XDG_WM_BASE);
 		}
 	
 		PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->window_manager_base) RESET " from " BOLD STRING(wl_registry_bind()) RESET);	
+
 		wl_proxy_set_queue((struct wl_proxy *) state->window_manager_base, state->default_queue);
 		
 		return;
@@ -293,7 +305,7 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 		STATE(data)->fd = allocate_shm_file(buf_size);
 
 		// Casting to pointer to uint8_t for pointer arthimatic
-		STATE(data)->buffer = (uint8_t *) mmap(NULL, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, STATE(data)->fd, 0);
+		STATE(data)->buffer = (uint8_t *) mmap(nullptr, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, STATE(data)->fd, 0);
 		if(STATE(data)->buffer == MAP_FAILED)
 		{
 			PRINT_LOG(FAIL, "Unable to map memory from the annonymous file to " BOLD STRING(STATE(data)->buffer) RESET);
@@ -304,7 +316,8 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 
 		PRINT_LOG(SUCCESS, "Mapped memory from the annonymous file to " BOLD "%s" RESET, STRING(state->buffer));
 
-		struct wl_shm_pool * pool = wl_shm_create_pool(STATE(data)->shared_memory, STATE(data)->fd, buf_size);
+		struct wl_shm_pool * pool = wl_shm_create_pool(shared_memory, STATE(data)->fd, buf_size);
+
 		if (! (STATE(data)->frame = (struct frame *) calloc(NUM_OF_BUFFERS, sizeof(struct frame))))
 		{
 			PRINT_LOG(FAIL, "Unable to allocate memory for " STRING(STATE(data)->frame));
@@ -457,13 +470,13 @@ static int dispatch_render_queue(void * args)
 	return queue_ret_val;
 }
 
-static int dispatch_registry_queue(void * args)
+static int dispatch_singleton_queue(void * args)
 {
-	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_registry_queue()) RESET);
+	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_singleton_queue()) RESET);
 		
 	int queue_ret_val = 0;
 	while(STATE(args)->running && queue_ret_val != -1)
-		queue_ret_val = wl_display_dispatch_queue(display, registry_queue); 
+		queue_ret_val = wl_display_dispatch_queue(display, singleton_queue); 
 
 	return queue_ret_val;
 }
@@ -471,7 +484,7 @@ static int dispatch_registry_queue(void * args)
 void qurtuba_init(void)
 {
 	// Initializing IPC with the compositor
-	if(! (display = wl_display_connect(NULL)))
+	if(! (display = wl_display_connect(nullptr)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
 		exit(ERR_DISPLAY);
@@ -479,16 +492,16 @@ void qurtuba_init(void)
 	
 	PRINT_LOG(SUCCESS, "Initialize " BOLD STRING(display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
 
-	if(! (registry_queue = wl_display_create_queue(display)))
+	if(! (singleton_queue = wl_display_create_queue(display)))
 	{
-		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(registry_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
+		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(singleton_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 		exit(ERR_DISPLAY);
 	}
 	
-	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(registry_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
+	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(singleton_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 	
 	registry = wl_display_get_registry(display);
-	wl_proxy_set_queue((struct wl_proxy *) registry, registry_queue);			// wl_registry will use registry_queue to execute events
+	wl_proxy_set_queue((struct wl_proxy *) registry, singleton_queue);			// wl_registry will use singleton_queue to execute events
 	wl_registry_add_listener(registry, &wl_registry_listener, nullptr);
 	
 	START_BENCHMARK(1);
@@ -496,9 +509,9 @@ void qurtuba_init(void)
 	// NOTE: Currently, it only binds compositor, shared memory and a window manager
 	// TODO: Support for binding custom registries
 
-	wl_display_roundtrip_queue(display, registry_queue);	
+	wl_display_roundtrip_queue(display, singleton_queue);	
 
-	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, registry_queue)) RESET);
+	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, singleton_queue)) RESET);
 }
 
 struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height, void (* draw) (uint32_t *, uint16_t, uint16_t))
@@ -520,12 +533,12 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 
 	for(struct global_object * i = global_object; i; i = i->next)
 	{
-		bind_global_objects(state, i->registry, i->name, i->interface, i->version);
+		bind_global_objects(state, i); 
 	}
 		
-	xdg_wm_base_add_listener(state->window_manager_base, &window_manager_base_listener, NULL);
+	xdg_wm_base_add_listener(state->window_manager_base, &window_manager_base_listener, nullptr);
 
-	if(! (state->wl_surface = wl_compositor_create_surface(state->compositor)))
+	if(! (state->wl_surface = wl_compositor_create_surface(compositor)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->wl_surface) RESET " from " BOLD STRING(wl_compositor_create_surface()) RESET);
 		exit(ERR_WL_SURFACE);
@@ -578,6 +591,10 @@ void qurtuba_launch_window(struct state * state)
 {
 	state->running = true;
 
+	thrd_t registry_queue_thrd_id;
+	thrd_create(&registry_queue_thrd_id, dispatch_singleton_queue, (void *) state);
+	int registry_queue_thrd_ret_val = 0;
+	
 	thrd_t display_queue_thrd_id = 0;
 	thrd_create(&display_queue_thrd_id, dispatch_display_queue, (void *) state);
 	int display_queue_thrd_ret_val = 0;
@@ -585,10 +602,6 @@ void qurtuba_launch_window(struct state * state)
 	thrd_t render_queue_thrd_id = 0;
 	thrd_create(&render_queue_thrd_id, dispatch_render_queue, (void *) state);
 	int render_queue_thrd_ret_val = 0;
-
-	thrd_t registry_queue_thrd_id;
-	thrd_create(&registry_queue_thrd_id, dispatch_registry_queue, (void *) state);
-	int registry_queue_thrd_ret_val = 0;
 	
 	// TODO: Remove this and put it maybe in qurtuba_close_window()
 	thrd_join(registry_queue_thrd_id, &registry_queue_thrd_ret_val);
@@ -605,8 +618,6 @@ void qurtuba_close_window(struct state * state)
 	xdg_surface_destroy(state->xdg_surface);
 	wl_surface_destroy(state->wl_surface);
 	xdg_wm_base_destroy(state->window_manager_base);
-	wl_shm_destroy(state->shared_memory);
-	wl_compositor_destroy(state->compositor);
 	
 	const uint32_t stride = state->width * 4;
 	const uint32_t frame_size = stride * state->height;
@@ -627,6 +638,8 @@ void qurtuba_close_window(struct state * state)
 // 2. Destroys:
 // 	- registry_queue
 // 	- registry
+// 	- compositor
+// 	- shared memory
 // 3. Disconnects IPC connection with compositor
 void qurtuba_exit(void)
 {
@@ -637,8 +650,11 @@ void qurtuba_exit(void)
 		i = next;
 	}
 
+	wl_shm_destroy(shared_memory);
+	wl_compositor_destroy(compositor);
 	wl_registry_destroy(registry);
-	wl_event_queue_destroy(registry_queue);
+	
+	wl_event_queue_destroy(singleton_queue);
 	
 	wl_display_disconnect(display);
 }
