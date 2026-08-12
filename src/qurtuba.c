@@ -146,8 +146,6 @@ static const struct wl_registry_listener wl_registry_listener = {
  *	  destroyed. Therefore, clients should invoke get_registry as infrequently as possible to avoid
  *	  wasting memory.
  */
-
-// TODO: Free allocated memory
 static void create_global_object_list (void * data, struct wl_registry * registry, uint32_t name, const char * interface, uint32_t version)
 {
 	PRINT_LOG(LOG, "Found:" "\n\t" "registry: " BOLD "%p" RESET "\n\t" "name: " BOLD "%" PRIu32 RESET "\n\t" "interface: " BOLD "%s" RESET "\n\t" "version: " BOLD "%" PRIu32 RESET, registry, name, interface, version);
@@ -609,7 +607,6 @@ void qurtuba_close_window(struct state * state)
 	xdg_wm_base_destroy(state->window_manager_base);
 	wl_shm_destroy(state->shared_memory);
 	wl_compositor_destroy(state->compositor);
-	wl_display_disconnect(display);
 	
 	const uint32_t stride = state->width * 4;
 	const uint32_t frame_size = stride * state->height;
@@ -624,4 +621,24 @@ void qurtuba_close_window(struct state * state)
 	close(state->fd);
 	free(state->frame);
 	free(state);
+}
+
+// 1. Releases memory allocated for the list global_object
+// 2. Destroys:
+// 	- registry_queue
+// 	- registry
+// 3. Disconnects IPC connection with compositor
+void qurtuba_exit(void)
+{
+	for(struct global_object * i = global_object; i;)
+	{
+		struct global_object * next = i->next;
+		free(i);
+		i = next;
+	}
+
+	wl_registry_destroy(registry);
+	wl_event_queue_destroy(registry_queue);
+	
+	wl_display_disconnect(display);
 }
