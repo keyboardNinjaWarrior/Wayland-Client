@@ -19,12 +19,17 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <errno.h>
 
 // Unix Libraries
-#include <threads.h>
-#include <wayland-client.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <linux/memfd.h>
+#include <sys/eventfd.h>
+#include <sys/poll.h>
+
+// Wayland Libraries
+#include <wayland-client.h>
 
 // Local Libraries
 #include "xdg-shell-client-protocol.h"
@@ -34,7 +39,7 @@
 #define STRING(x)	#x
 #define NUM_OF_BUFFERS 	2
 #define STATE(x) 	((struct state *) (x))
-#define MIN(x,y)	(((x) < (y)) ? (x) : (y))
+#define MIN(x, y)	(((x) < (y)) ? (x) : (y))
 
 /* Global Singelton Objects
  * These are initilized at the start of window creation once only. These include:
@@ -50,7 +55,6 @@ struct wl_display * display;
 struct wl_registry * registry;
 struct wl_compositor * compositor;
 struct wl_shm * shared_memory;
-
 struct wl_event_queue * singleton_queue;
 
 static struct global_object
@@ -99,10 +103,26 @@ struct state
 	uint16_t width_to_set;
 	uint16_t height_to_set;
 
-	int fd;
+	int buffer_fd;
+	int shutdown_fd;
+
 	const uint8_t len;
-	
+
 	bool running;
+
+	pthread_mutex_t callback_lock;
+};
+
+void handle_errors (void * data, struct wl_display * wl_display, void * object_id, uint32_t code, const char * message) {}
+void handle_deleted_ids (void *data, struct wl_display *wl_display, uint32_t id) {}
+const struct wl_display_listener display_listener = {
+	.error = &handle_errors,
+	.delete_id = &handle_deleted_ids
+};
+
+void inform_buffer_formart(void *data, struct wl_shm *wl_shm, uint32_t format) {}
+const struct wl_shm_listener shared_memory_listenr = {
+	.format = &inform_buffer_formart
 };
 
 static void ping (void * data, struct xdg_wm_base * xdg_wm_base, uint32_t serial);
@@ -302,21 +322,21 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 		
 		PRINT_LOG(LOG, "Total buffer size = " BOLD "%d" RESET " bytes", buf_size);
 		
-		STATE(data)->fd = allocate_shm_file(buf_size);
+		STATE(data)->buffer_fd = allocate_shm_file(buf_size);
 
 		// Casting to pointer to uint8_t for pointer arthimatic
-		STATE(data)->buffer = (uint8_t *) mmap(nullptr, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, STATE(data)->fd, 0);
+		STATE(data)->buffer = (uint8_t *) mmap(nullptr, buf_size, PROT_READ | PROT_WRITE, MAP_SHARED, STATE(data)->buffer_fd, 0);
 		if(STATE(data)->buffer == MAP_FAILED)
 		{
 			PRINT_LOG(FAIL, "Unable to map memory from the annonymous file to " BOLD STRING(STATE(data)->buffer) RESET);
-			close(STATE(data)->fd);
+			close(STATE(data)->buffer_fd);
 
 			exit(ERR_MEM);
 		}
 
 		PRINT_LOG(SUCCESS, "Mapped memory from the annonymous file to " BOLD "%s" RESET, STRING(state->buffer));
 
-		struct wl_shm_pool * pool = wl_shm_create_pool(shared_memory, STATE(data)->fd, buf_size);
+		struct wl_shm_pool * pool = wl_shm_create_pool(shared_memory, STATE(data)->buffer_fd, buf_size);
 
 		if (! (STATE(data)->frame = (struct frame *) calloc(NUM_OF_BUFFERS, sizeof(struct frame))))
 		{
@@ -341,16 +361,34 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 		PRINT_LOG(LOG, "Created frame buffers...");
 		
 		wl_shm_pool_destroy(pool);
-		goto xdg_surface_configure_end;
 
+		pthread_mutex_lock(&(STATE(data)->callback_lock));
+		STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
+		wl_proxy_set_queue((struct wl_proxy *) STATE(data)->callback, STATE(data)->render_queue);
+		wl_callback_add_listener(STATE(data)->callback, &wl_callback_listener, data);
+		pthread_mutex_unlock(&(STATE(data)->callback_lock));
+		
+		for(int i = 0; i < NUM_OF_BUFFERS; i++)
+		{
+			if(STATE(data)->frame[i].free)
+			{
+				wl_surface_attach(STATE(data)->wl_surface, STATE(data)->frame[0].buffer, 0, 0);
+				break;
+			}
+		}
+
+		wl_surface_commit(STATE(data)->wl_surface);
+		
+		return;
 	}
-	
+
+	pthread_mutex_lock(&(STATE(data)->callback_lock));
 	wl_callback_destroy(STATE(data)->callback);
-	
-	xdg_surface_configure_end:
 	STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
 	wl_proxy_set_queue((struct wl_proxy *) STATE(data)->callback, STATE(data)->render_queue);
 	wl_callback_add_listener(STATE(data)->callback, &wl_callback_listener, data);
+	pthread_mutex_unlock(&(STATE(data)->callback_lock));
+	
 	for(int i = 0; i < NUM_OF_BUFFERS; i++)
 	{
 		if(STATE(data)->frame[i].free)
@@ -359,6 +397,7 @@ static void configure_surface(void *data, struct xdg_surface *xdg_surface, uint3
 			break;
 		}
 	}
+
 	wl_surface_commit(STATE(data)->wl_surface);
 	
 	END_BENCHMARK(1, "Event: " BOLD "%s()" RESET, __func__)
@@ -387,21 +426,21 @@ static void configure_toplevel_surface(void *data, struct xdg_toplevel *xdg_topl
 static void done_callback (void *data, struct wl_callback *wl_callback, uint32_t callback_data)
 {
 	
-	#ifdef DEBUG 
-	
+#ifdef DEBUG	
 	static uint32_t time = 0;
 	if(time == 0)	time = callback_data;
 	
 	PRINT_LOG(BENCHMARK, "\u0394callback = %d ms", callback_data - time);
 	
-	time = callback_data;
+	time = callback_data;	
+#endif
 	
-	#endif
-	
+	pthread_mutex_lock(&(STATE(data)->callback_lock));
 	wl_callback_destroy(STATE(data)->callback);
 	STATE(data)->callback = wl_surface_frame(STATE(data)->wl_surface);
 	wl_proxy_set_queue((struct wl_proxy *) STATE(data)->callback, STATE(data)->render_queue);
 	wl_callback_add_listener(STATE(data)->callback, &wl_callback_listener, data);
+	pthread_mutex_unlock(&(STATE(data)->callback_lock));
 	
 	struct frame * free_frame;
 
@@ -435,6 +474,12 @@ static void close_xdg_toplevel(void * data, struct xdg_toplevel * xdg_toplevel)
 	PRINT_LOG(LOG, "Quitting...");
 	
 	STATE(data)->running = false;
+
+	const uint64_t buffer = 1;
+	if(write(STATE(data)->shutdown_fd, &buffer, sizeof(buffer)) < 0)
+	{
+		PRINT_LOG(FAIL, "Unable to write in buffer!");
+	}
 }
 
 static void configure_toplevel_bounds (void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height) {}
@@ -448,70 +493,121 @@ static void release_buffer(void *data, struct wl_buffer *wl_buffer)
 	PRINT_LOG(LOG, BOLD "frame[%d]" RESET " freed", frame_to_be_free->id);
 }
 
-static int dispatch_display_queue(void * args)
+int8_t dispatch_queue(struct wl_event_queue * queue, int fd)
+{
+	while(wl_display_prepare_read_queue(display, queue) != 0)
+	{
+		if(wl_display_dispatch_queue_pending(display, queue) < 0)	return -1;
+	}
+
+	if(wl_display_flush(display) < 0 && errno != EAGAIN)
+	{
+		wl_display_cancel_read(display);
+		return -1;
+	}
+
+	struct pollfd fds[2] = {
+		{.fd = wl_display_get_fd(display), 	.events = POLLIN},
+		{.fd = fd, 				.events = POLLIN}
+	};
+
+	if(poll(fds, 2, -1) < 0)
+	{
+		wl_display_cancel_read(display);
+		return -1;
+	}
+
+	if(fds[1].revents & POLLIN)
+	{
+		wl_display_cancel_read(display);
+		return 1;
+	}
+
+	if(fds[0].revents & POLLIN)
+	{
+		if(wl_display_read_events(display) < 0)	return -1;
+	}
+	else
+	{
+		wl_display_cancel_read(display);
+	}
+
+	return wl_display_dispatch_queue_pending(display, queue) < 0 ? -1 : 0;
+}
+
+// Dispatches display queue
+static void * dispatch_display_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_display_queue()) RESET);
 
-	int queue_ret_val = 0;
-	while(STATE(args)->running && queue_ret_val != -1)	
-		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->default_queue);
+	while(1)	if(dispatch_queue(STATE(args)->default_queue, STATE(args)->shutdown_fd) != 0)	break;
 	
-	return queue_ret_val;
+	PRINT_LOG(LOG, "Closed!");
+
+	pthread_exit(nullptr);
 }
 
-static int dispatch_render_queue(void * args)
+// Dispatches render queue
+static void * dispatch_render_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_render_queue()) RESET);
 		
-	int queue_ret_val = 0;
-	while(STATE(args)->running && queue_ret_val != -1)
-		queue_ret_val = wl_display_dispatch_queue(display, STATE(args)->render_queue);
+	while(1)	if(dispatch_queue(STATE(args)->render_queue, STATE(args)->shutdown_fd) != 0)	break;
+	
+	PRINT_LOG(LOG, "Closed!");
 
-	return queue_ret_val;
+	pthread_exit(nullptr);
 }
 
-static int dispatch_singleton_queue(void * args)
+// Dispatches singleton queue
+static void * dispatch_singleton_queue(void * args)
 {
 	PRINT_LOG(LOG, "Launched " BOLD STRING(dispatch_singleton_queue()) RESET);
 		
-	int queue_ret_val = 0;
-	while(STATE(args)->running && queue_ret_val != -1)
-		queue_ret_val = wl_display_dispatch_queue(display, singleton_queue); 
+	while(1)	if(dispatch_queue(singleton_queue, STATE(args)->shutdown_fd) != 0)	break;
+	
+	PRINT_LOG(LOG, "Closed!");
 
-	return queue_ret_val;
+	pthread_exit(nullptr);
 }
 
 void qurtuba_init(void)
 {
-	// Initializing IPC with the compositor
+	// initializing IPC with the compositor
 	if(! (display = wl_display_connect(nullptr)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
-		exit(ERR_DISPLAY);
+		exit(ERR_INIT);
 	}
 	
 	PRINT_LOG(SUCCESS, "Initialize " BOLD STRING(display) RESET " from " BOLD STRING(wl_display_connect()) RESET);
-
+	
+	// intializing queue for singletons
 	if(! (singleton_queue = wl_display_create_queue(display)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(singleton_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
-		exit(ERR_DISPLAY);
-	}
-	
+		
+		// disconnecting display before crashing
+		wl_display_disconnect(display);
+		exit(ERR_INIT);
+	}	
+
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(singleton_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
 	
+	// attatching display's event listener
+	wl_display_add_listener(display, &display_listener, nullptr);
+	
+	// getting registry global object from server
 	registry = wl_display_get_registry(display);
 	wl_proxy_set_queue((struct wl_proxy *) registry, singleton_queue);			// wl_registry will use singleton_queue to execute events
 	wl_registry_add_listener(registry, &wl_registry_listener, nullptr);
 	
-	START_BENCHMARK(1);
-	
-	// NOTE: Currently, it only binds compositor, shared memory and a window manager
 	// TODO: Support for binding custom registries
-
+	START_BENCHMARK(1);
 	wl_display_roundtrip_queue(display, singleton_queue);	
-
 	END_BENCHMARK(1, "Function " BOLD STRING(wl_display_roundtrip_queue(display, singleton_queue)) RESET);
+
+	wl_shm_add_listener(shared_memory, &shared_memory_listenr, nullptr);
 }
 
 struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t height, void (* draw) (uint32_t *, uint16_t, uint16_t))
@@ -526,7 +622,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	if(! (state->default_queue = wl_display_create_queue(display)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->default_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
-		exit(ERR_DISPLAY);
+		exit(ERR_INIT);
 	}
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->default_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
@@ -577,7 +673,7 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	if(! (state->render_queue = wl_display_create_queue(display)))
 	{
 		PRINT_LOG(FAIL, "Unable to initialize " BOLD STRING(state->render_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
-		exit(ERR_DISPLAY);
+		exit(ERR_INIT);
 	}
 	
 	PRINT_LOG(SUCCESS, "Initialized " BOLD STRING(state->render_queue) RESET " from " BOLD STRING(wl_display_create_queue()) RESET);
@@ -587,26 +683,26 @@ struct state * qurtuba_create_window(char * title, uint16_t width, uint16_t heig
 	return state;
 }
 
+// TODO: handle return value
 void qurtuba_launch_window(struct state * state)
 {
 	state->running = true;
-
-	thrd_t registry_queue_thrd_id;
-	thrd_create(&registry_queue_thrd_id, dispatch_singleton_queue, (void *) state);
-	int registry_queue_thrd_ret_val = 0;
+	pthread_mutex_init(&(state->callback_lock), nullptr);
+	state->shutdown_fd = eventfd(0, EFD_CLOEXEC);
 	
-	thrd_t display_queue_thrd_id = 0;
-	thrd_create(&display_queue_thrd_id, dispatch_display_queue, (void *) state);
-	int display_queue_thrd_ret_val = 0;
-
-	thrd_t render_queue_thrd_id = 0;
-	thrd_create(&render_queue_thrd_id, dispatch_render_queue, (void *) state);
-	int render_queue_thrd_ret_val = 0;
+	pthread_t singleton_queue_thrd_id;
+	pthread_create(&singleton_queue_thrd_id, nullptr, dispatch_singleton_queue, (void *) state);
 	
-	// TODO: Remove this and put it maybe in qurtuba_close_window()
-	thrd_join(registry_queue_thrd_id, &registry_queue_thrd_ret_val);
-	thrd_join(render_queue_thrd_id, &render_queue_thrd_ret_val);
-	thrd_join(display_queue_thrd_id, &display_queue_thrd_ret_val);
+	pthread_t display_queue_thrd_id = 0;
+	pthread_create(&display_queue_thrd_id, nullptr, dispatch_display_queue, (void *) state);
+
+	pthread_t render_queue_thrd_id = 0;
+	pthread_create(&render_queue_thrd_id, nullptr, dispatch_render_queue, (void *) state);
+	
+	// TODO: Remove this and put it maybe in qurtuba_close_window()	
+	pthread_join(singleton_queue_thrd_id, nullptr);	
+	pthread_join(render_queue_thrd_id, nullptr);
+	pthread_join(display_queue_thrd_id, nullptr);
 }
 
 void qurtuba_close_window(struct state * state)
@@ -629,7 +725,7 @@ void qurtuba_close_window(struct state * state)
 		exit(ERR_MEM);
 	}
 		
-	close(state->fd);
+	close(state->buffer_fd);
 	free(state->frame);
 	free(state);
 }

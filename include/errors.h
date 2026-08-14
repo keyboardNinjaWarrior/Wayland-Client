@@ -1,7 +1,8 @@
 #ifndef ERRORS_H
 #define ERRORS_H
 
-#define ERR_DISPLAY		(0b0001 << 0)
+#define ERR_INIT		1
+
 #define ERR_COMPOSITOR		(0b0010 << 0)
 #define ERR_SHM			(0b0100 << 0)
 #define ERR_XDG_WM_BASE		(0b1000 << 0)
